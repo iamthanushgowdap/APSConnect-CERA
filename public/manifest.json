@@ -1,0 +1,9 @@
+{
+  "name": "APSConnect",
+  "short_name": "APSConnect",
+  "description": "A modern platform for college communication and engagement for APS.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000"
+}

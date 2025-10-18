@@ -1,0 +1,307 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 17% 95%; /* Light Gray #ecf0f1 */
+    --foreground: 220 20% 15%; /* Dark Gray for text on light background */
+
+    --card: 0 0% 100%; /* White */
+    --card-foreground: 220 20% 15%;
+
+    --popover: 0 0% 100%; /* White */
+    --popover-foreground: 220 20% 15%;
+
+    --primary: 0 0% 0%; /* Black */
+    --primary-foreground: 0 0% 100%; /* White */
+
+    --secondary: 210 17% 90%; /* Slightly darker gray */
+    --secondary-foreground: 220 20% 10%;
+
+    --muted: 210 17% 85%;
+    --muted-foreground: 220 20% 35%;
+
+    --accent: 0 0% 0%; /* Black */
+    --accent-foreground: 0 0% 100%; /* White */
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 210 10% 80%;
+    --input: 210 10% 90%;
+    --ring: 0 0% 0%; /* Primary black for ring */
+
+    --radius: 0.5rem;
+
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+  }
+
+  .dark {
+    --background: 220 15% 10%; /* Very Dark Blue/Gray */
+    --foreground: 210 17% 90%; /* Light Gray/White */
+
+    --card: 220 15% 15%;
+    --card-foreground: 210 17% 90%;
+
+    --popover: 220 15% 15%;
+    --popover-foreground: 210 17% 90%;
+
+    --primary: 0 0% 100%; /* White */
+    --primary-foreground: 0 0% 0%; /* Black */
+
+    --secondary: 220 15% 20%;
+    --secondary-foreground: 210 17% 95%;
+
+    --muted: 220 15% 25%;
+    --muted-foreground: 210 17% 65%;
+
+    --accent: 0 0% 100%; /* White (as black is already primary in dark mode) */
+    --accent-foreground: 0 0% 10%; /* Dark text for accent button */
+
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 220 15% 25%;
+    --input: 220 15% 20%;
+    --ring: 0 0% 100%; /* White for ring in dark mode */
+
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .four_zero_four_bg {
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-position: center;
+    height: 400px;
+    animation: zoom-in-zoom-out 15s ease-in-out infinite;
+  }
+
+  .four_zero_four_bg h1 {
+    font-size: 80px;
+    font-weight: 900;
+  }
+
+  .contant_box_404 {
+    margin-top: -50px;
+  }
+
+  @keyframes zoom-in-zoom-out {
+    0% {
+      transform: scale(1, 1);
+    }
+    50% {
+      transform: scale(1.05, 1.05);
+    }
+    100% {
+      transform: scale(1, 1);
+    }
+  }
+}
+
+/* Glitch animation styles for 404 page */
+.glitchy-text {
+  color: hsl(var(--foreground));
+  display: inline-block;
+  position: relative;
+}
+
+.glitchy-text__char--readable {
+  opacity: 0;
+  position: absolute;
+}
+
+@keyframes glitch-switch {
+  0% { content: var(--char-0); }
+  10% { content: var(--char-1); }
+  20% { content: var(--char-2); }
+  30% { content: var(--char-3); }
+  40% { content: var(--char-4); }
+  50% { content: var(--char-5); }
+  60% { content: var(--char-6); }
+  70% { content: var(--char-7); }
+  80% { content: var(--char-8); }
+  90% { content: var(--char-9); }
+  100% { content: var(--char-0); }
+}
+
+.glitchy-text__char {
+  color: transparent;
+  position: relative;
+}
+
+.glitchy-text__char:after {
+  --txt: attr(data-char);
+  animation-duration: 0.2s;
+  animation-delay: 0.2s;
+  animation-fill-mode: backwards;
+  animation-timing-function: steps(1);
+  animation-iteration-count: var(--count);
+  animation-name: glitch-switch;
+  color: hsl(var(--foreground));
+  transition: color 0.2s ease 0s;
+  position: absolute;
+  content: var(--txt);
+  left: 0;
+  top: 0;
+}
+
+.bear__shades {
+  opacity: var(--bear-shades);
+}
+
+.bear__tear-stream {
+  fill: hsla(200, 100%, 75%, var(--bear-tears, 0));
+}
+
+.bear__brows {
+  stroke: hsla(0, 0%, 0%, var(--bear-brows, 0));
+}
+
+.bear__eye {
+  fill: hsla(0, 0%, 0%, var(--bear-eyes, 0));
+}
+
+.bear-logo {
+  grid-row: span 2;
+  position: relative;
+  max-width: 400px;
+  object-fit: contain;
+  height: 6rem;
+  width: 6rem;
+}
+
+.bear__eye--teary {
+  fill: hsla(200, 100%, 75%, calc(var(--bear-tears, 0) - 0.5));
+}
+
+@media (min-width: 768px) {
+  .bear-logo {
+    height: 12rem;
+    width: 12rem;
+  }
+}
+
+.return-link:hover ~ .bear-logo--tears {
+  --bear-brows: 0;
+  --bear-tears: 0;
+}
+
+.bear-logo--tears {
+  --bear-shades: 0;
+  --bear-brows: 1;
+  --bear-tears: 0.75;
+  --bear-eyes: 1;
+}
+
+.bear-logo--tears path,
+.bear-logo--tears circle,
+.bear-logo--tears ellipse {
+  transition: fill .2s ease 0s, transform .2s ease 0s;
+}
+
+.return-link:hover ~ .bear-logo--tears .bear__eye {
+  transform: scaleY(1);
+  fill: hsla(0, 100%, 0%, var(--bear-eyes));
+}
+
+.bear-logo--tears .bear__eye {
+  transform: scaleY(0.25);
+  transform-origin: 97px 894px;
+  fill: hsla(200, 100%, 75%, var(--bear-eyes));
+}
+
+.bear-logo--tears .bear__eye--right {
+  transform-origin: 201px 894px;
+}
+
+.bear-logo,
+.four-oh-four__code span:nth-of-type(2):after,
+.four-oh-four__code span:nth-of-type(3):after,
+.four-oh-four__code span:nth-of-type(4):after,
+.four-oh-four__code-message span:nth-of-type(2):after,
+.four-oh-four__code-message span:nth-of-type(3):after,
+.four-oh-four__code-message span:nth-of-type(4):after,
+.four-oh-four__code-message span:nth-of-type(6):after,
+.four-oh-four__code-message span:nth-of-type(7):after,
+.four-oh-four__code-message span:nth-of-type(8):after,
+.four-oh-four__code-message span:nth-of-type(9):after,
+.four-oh-four__code-message span:nth-of-type(10):after {
+  --translateX: calc((var(--X)) * var(--scaleX) * 1px);
+  --translateY: calc((var(--Y)) * var(--scaleY) * 1px);
+  transform: translate(var(--translateX), var(--translateY));
+}
+
+/* Logo */
+.bear-logo--tears {
+  --scaleX: -50;
+  --scaleY: -50;
+}
+
+/* 404 */
+.four-oh-four__code span:nth-of-type(2) {
+  --scaleX: 30;
+  --scaleY: -20;
+}
+.four-oh-four__code span:nth-of-type(3) {
+  --scaleX: -20;
+  --scaleY: 50;
+}
+.four-oh-four__code span:nth-of-type(4) {
+  --scaleX: -30;
+  --scaleY: 40;
+}
+
+/* Not found */
+.four-oh-four__code-message span:nth-of-type(2) {
+  --scaleX: 20;
+  --scaleY: 10;
+}
+.four-oh-four__code-message span:nth-of-type(3) {
+  --scaleX: 5;
+  --scaleY: -10;
+}
+.four-oh-four__code-message span:nth-of-type(4) {
+  --scaleX: 40;
+  --scaleY: -30;
+}
+.four-oh-four__code-message span:nth-of-type(6) {
+  --scaleX: 50;
+  --scaleY: 50;
+}
+.four-oh-four__code-message span:nth-of-type(7) {
+  --scaleX: 0;
+  --scaleY: -15;
+}
+.four-oh-four__code-message span:nth-of-type(8) {
+  --scaleX: 35;
+  --scaleY: 10;
+}
+.four-oh-four__code-message span:nth-of-type(9) {
+  --scaleX: -40;
+  --scaleY: 25;
+}
+.four-oh-four__code-message span:nth-of-type(10) {
+  --scaleX: 50;
+  --scaleY: -25;
+}
