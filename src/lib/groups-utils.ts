@@ -1,29 +1,14 @@
 
-import type { User, UserProfile, Group, Branch, Semester } from '@/types';
+import { supabase } from '@/lib/supabase';
+import type { UserProfile, Group, Branch, Semester, GroupType } from '@/types';
+import type { User } from '@/components/auth-provider';
 import { defaultBranches, semesters } from '@/types';
-
-// Helper function to get all users from localStorage
-function getAllUsers(): UserProfile[] {
-  if (typeof window === 'undefined') return [];
-  const users: UserProfile[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key?.startsWith('apsconnect_user_')) {
-      try {
-        users.push(JSON.parse(localStorage.getItem(key)!));
-      } catch (e) {
-        console.error(`Failed to parse user profile from key: ${key}`);
-      }
-    }
-  }
-  return users;
-}
 
 // Generates a group for a specific branch and semester
 function generateGroupsFor(branch: Branch, semester: Semester): Group[] {
   return [
     {
-      id: `${branch}_${semester}_official`.replace(/ & /g, '-').replace(/ /g, '-'),
+      id: `${branch}_${semester.replace(/ & /g, '-').replace(/ /g, '-')}_official`,
       name: `${branch} - ${semester} Official`,
       type: 'official',
       branch,
@@ -31,7 +16,7 @@ function generateGroupsFor(branch: Branch, semester: Semester): Group[] {
       description: `Official announcements for ${branch} ${semester}.`
     },
     {
-      id: `${branch}_${semester}_student`.replace(/ & /g, '-').replace(/ /g, '-'),
+      id: `${branch}_${semester.replace(/ & /g, '-').replace(/ /g, '-')}_student`,
       name: `${branch} - ${semester} Students`,
       type: 'student',
       branch,
@@ -43,89 +28,187 @@ function generateGroupsFor(branch: Branch, semester: Semester): Group[] {
 
 // Main function to get all groups a user belongs to
 export async function getMyGroups(user: User): Promise<Group[]> {
-  const myGroups: Group[] = [];
-  
-  if (user.role === 'admin') {
-    // Admin is in all official groups
-    const managedBranches = JSON.parse(localStorage.getItem('apsconnect_managed_branches') || JSON.stringify(defaultBranches));
-    managedBranches.forEach((branch: Branch) => {
-      semesters.forEach(semester => {
-        myGroups.push(generateGroupsFor(branch, semester)[0]); // Add official group
-      });
-    });
-  } else if (user.role === 'faculty') {
-    // Faculty is in official groups for their assigned branches/semesters
-    const assignedBranches = user.assignedBranches || [];
-    const assignedSemesters = user.assignedSemesters || [];
+  if (!user) return [];
 
-    assignedBranches.forEach(branch => {
-      if (assignedSemesters.length > 0) {
-        assignedSemesters.forEach(semester => {
-           myGroups.push(generateGroupsFor(branch, semester)[0]);
-        });
-      } else { // If no semester is assigned, they are in all sem groups for that branch
-        semesters.forEach(semester => {
-           myGroups.push(generateGroupsFor(branch, semester)[0]);
-        });
-      }
-    });
-  } else if (user.role === 'student' && user.branch && user.semester) {
-    // Student is in both official and student groups for their class
-    myGroups.push(...generateGroupsFor(user.branch, user.semester));
+  try {
+    // Get user's group memberships from database
+    const { data: memberships, error } = await supabase
+      .from('group_members')
+      .select(`
+        group_id,
+        can_post,
+        groups (
+          id,
+          name,
+          type,
+          branch,
+          semester,
+          description
+        )
+      `)
+      .eq('user_id', user.uid);
+
+    if (error) {
+      console.error('Error fetching user groups:', error);
+      return [];
+    }
+
+    // Transform the data to match our Group interface
+    const groups: Group[] = memberships
+      ?.map((membership: any) => membership.groups)
+      .filter((group: any): group is Group => Boolean(group)) || [];
+
+    return groups.sort((a, b) => a.name.localeCompare(b.name));
+  } catch (error) {
+    console.error('Error in getMyGroups:', error);
+    return [];
   }
-
-  // Remove duplicates and sort
-  const uniqueGroups = Array.from(new Map(myGroups.map(g => [g.id, g])).values());
-  return uniqueGroups.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // Get a single group by its ID
-export function getGroupById(groupId: string): Group | null {
-    const parts = groupId.split('_');
-    if (parts.length < 3) return null;
-    
-    // Handles branch names with hyphens that were replaced from spaces or ampersands
-    const type = parts[parts.length - 1];
-    const semester = parts[parts.length - 2].replace(/-/g, ' ');
-    const branch = parts.slice(0, -2).join('_').replace(/-/g, ' ');
+export async function getGroupById(groupId: string): Promise<Group | null> {
+  try {
+    const { data: group, error } = await supabase
+      .from('groups')
+      .select('*')
+      .eq('id', groupId)
+      .single();
 
-    if (![...defaultBranches, ...JSON.parse(localStorage.getItem('apsconnect_managed_branches') || '[]')].includes(branch)) {
-      // A simple check; might need to be more robust if branches are fully dynamic
+    if (error) {
+      console.error('Error fetching group:', error);
+      return null;
     }
-    
-    const allGroups = generateGroupsFor(branch as Branch, semester as Semester);
-    return allGroups.find(g => g.id === groupId) || null;
+
+    return group;
+  } catch (error) {
+    console.error('Error in getGroupById:', error);
+    return null;
+  }
 }
 
-
 // Get all members of a specific group
-export function getGroupMembers(groupId: string): UserProfile[] {
-    const group = getGroupById(groupId);
+export async function getGroupMembers(groupId: string): Promise<UserProfile[]> {
+  try {
+    // First get the group to understand its type and requirements
+    const group = await getGroupById(groupId);
     if (!group) return [];
 
-    const allUsers = getAllUsers();
-    
-    if (group.type === 'official') {
-        return allUsers.filter(u => {
-            // Admin is always in official groups
-            if (u.role === 'admin') return true;
-            // Students of that class
-            if (u.role === 'student' && u.isApproved && u.branch === group.branch && u.semester === group.semester) return true;
-            // Faculty assigned to that class
-            if (u.role === 'faculty' && u.assignedBranches?.includes(group.branch)) {
-                 if (!u.assignedSemesters || u.assignedSemesters.length === 0) return true; // Faculty assigned to all sems of the branch
-                 if (u.assignedSemesters.includes(group.semester)) return true;
-            }
-            return false;
-        });
-    } else if (group.type === 'student') {
-        return allUsers.filter(u => 
-            u.role === 'student' && 
-            u.isApproved && 
-            u.branch === group.branch && 
-            u.semester === group.semester
-        );
+    // Get user IDs from group_members
+    const { data: memberships, error: membershipError } = await supabase
+      .from('group_members')
+      .select('user_id')
+      .eq('group_id', groupId);
+
+    console.log('Group ID:', groupId);
+    console.log('Memberships result:', memberships, 'Error:', membershipError);
+
+    if (membershipError) {
+      console.error('Error fetching group memberships:', membershipError);
+      return [];
     }
-    
+
+    if (!memberships || memberships.length === 0) {
+      console.log('No memberships found');
+      return [];
+    }
+
+    const userIds = memberships.map(m => m.user_id);
+    console.log('Found user IDs:', userIds);
+
+    // Fetch user profiles - select correct fields
+    const { data: profiles, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('id, email, display_name, full_name, faculty_title, role, usn, branch, semester, is_approved, avatar_url, student_id')
+      .in('id', userIds);
+
+    console.log('Profile query result:', profiles, 'Error:', profileError);
+
+    if (profileError) {
+      console.error('Error fetching user profiles:', profileError);
+      return [];
+    }
+
+    // Transform the data to match UserProfile interface and filter by role
+    const members: UserProfile[] = (profiles || [])
+      .filter(profile => {
+        // For student groups, only show students
+        if (group.type === 'student') {
+          return profile.role === 'student';
+        }
+        // For official groups, show students, faculty, and admins
+        return ['student', 'faculty', 'admin'].includes(profile.role);
+      })
+      .map(profile => ({
+        id: profile.id,
+        email: profile.email,
+        full_name: profile.full_name || profile.display_name,  // Use full_name if available, otherwise display_name
+        avatar_url: profile.avatar_url,
+        role: profile.role,
+        department: profile.branch,
+        year_of_study: profile.semester,
+        student_id: profile.student_id,
+        faculty_title: profile.faculty_title,  // Add faculty_title
+        is_approved: profile.is_approved,
+        branch: profile.branch,
+        semester: profile.semester,
+        usn: profile.usn,
+        display_name: profile.display_name,
+        // Add other required fields with defaults
+        created_at: '',
+        updated_at: '',
+      } as UserProfile));
+
+    console.log('Returning real member data:', members.length, 'members');
+
+    return members.sort((a, b) =>
+      (a.full_name || a.email).localeCompare(b.full_name || b.email)
+    );
+  } catch (error) {
+    console.error('Error in getGroupMembers:', error);
     return [];
+  }
+}
+
+// Check if user can post in a specific group
+export async function canUserPostInGroup(userId: string, groupId: string): Promise<boolean> {
+  try {
+    const { data: membership, error } = await supabase
+      .from('group_members')
+      .select('can_post')
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      console.error('Error checking posting permission:', error);
+      return false;
+    }
+
+    return membership?.can_post || false;
+  } catch (error) {
+    console.error('Error in canUserPostInGroup:', error);
+    return false;
+  }
+}
+
+// Initialize groups for a new branch/semester combination (admin function)
+export async function initializeGroupsForBranchSemester(branch: Branch, semester: Semester): Promise<void> {
+  try {
+    const groups = generateGroupsFor(branch, semester);
+
+    // Insert groups
+    const { error: groupsError } = await supabase
+      .from('groups')
+      .upsert(groups, { onConflict: 'id' });
+
+    if (groupsError) {
+      throw groupsError;
+    }
+
+    // This would need to be called by an admin to populate memberships
+    // The memberships population is handled by the migration script
+    console.log(`Groups initialized for ${branch} ${semester}`);
+  } catch (error) {
+    console.error('Error initializing groups:', error);
+  }
 }

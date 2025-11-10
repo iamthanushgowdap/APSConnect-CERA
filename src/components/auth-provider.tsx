@@ -1,29 +1,24 @@
-
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import type { UserRole, Branch, UserProfile, Semester, NotificationPreferences } from '@/types'; 
+import type { UserRole, Branch, UserProfile, Semester, NotificationPreferences } from '@/types';
 import { useToast } from '@/hooks/use-toast';
-import { SiteConfig } from '@/config/site'; 
-// import { UpdateNotificationToast } from '@/components/notifications/update-notification-toast';
-import { useRouter } from 'next/navigation';
-import { checkAndGenerateNotifications } from '@/lib/notification-manager';
-import { getUserProfile, updateUserProfile, testDatabaseConnection, migrateProfileByUsn } from '@/lib/supabase-utils';
 import { supabase } from '@/lib/supabase';
-
+import { checkAndGenerateNotifications } from '@/lib/notification-manager';
 
 export interface User {
-  uid: string; 
-  email: string | null; 
+  uid: string;
+  email: string | null;
   displayName: string | null;
   role: UserRole;
-  branch?: Branch; 
-  usn?: string; 
-  assignedBranches?: Branch[]; 
-  assignedSemesters?: Semester[]; 
-  rejectionReason?: string; 
-  semester?: Semester; 
-  avatarDataUrl?: string; 
+  branch?: Branch;
+  usn?: string;
+  assignedBranches?: Branch[];
+  assignedSemesters?: Semester[];
+  rejectionReason?: string;
+  is_approved?: boolean; // Add approval status
+  semester?: Semester;
+  avatarDataUrl?: string;
   pronouns?: string;
   notificationPreferences?: NotificationPreferences;
 }
@@ -31,393 +26,253 @@ export interface User {
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  signIn: (credentials: { username: string; password: string }) => Promise<User>; 
+  signIn: (credentials: { username: string; password: string }) => Promise<User>;
   signOut: () => Promise<void>;
-  updateUserContext: (updatedUser: User) => void; 
+  updateUserContext: (updatedUser: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const CACHE_KEY = 'aps_user_profile';
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Cached profile data structure
+interface CachedProfile {
+  user: User;
+  timestamp: number;
+}
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
-  const router = useRouter();
 
-  const defaultNotificationPreferences: NotificationPreferences = {
-    news: true,
-    events: true,
-    notes: true,
-    schedules: true,
-    general: true,
-    approval: true,
-    assignment_deadline: true,
-    fee_due: true,
-    low_attendance: true,
+  // Check if cached profile is still valid
+  const getCachedProfile = (): User | null => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (!cached) return null;
+
+      const parsed: CachedProfile = JSON.parse(cached);
+      if (Date.now() - parsed.timestamp > CACHE_DURATION) {
+        localStorage.removeItem(CACHE_KEY);
+        return null;
+      }
+
+      return parsed.user;
+    } catch {
+      localStorage.removeItem(CACHE_KEY);
+      return null;
+    }
   };
 
-  const checkForAlumniStatus = (profile: UserProfile): UserRole => {
-    if (profile.role === 'alumni') return 'alumni'; // Already an alumni, no change
-    if (profile.role === 'student' && profile.education && profile.education.length > 0) {
-      const latestEducation = profile.education.sort((a: any, b: any) => parseInt(b.graduationYear) - parseInt(a.graduationYear))[0];
-      const gradYear = parseInt(latestEducation.graduationYear);
-      const currentYear = new Date().getFullYear();
-      if (!isNaN(gradYear) && currentYear > gradYear) {
-        return 'alumni';
+  // Cache profile data
+  const setCachedProfile = (userData: User) => {
+    const cached: CachedProfile = {
+      user: userData,
+      timestamp: Date.now()
+    };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
+  };
+
+  // Clear cache
+  const clearCache = () => {
+    localStorage.removeItem(CACHE_KEY);
+  };
+
+  // Optimized profile fetching with caching
+  const fetchProfile = async (userId: string): Promise<User | null> => {
+    try {
+      // Check cache first
+      const cached = getCachedProfile();
+      if (cached && cached.uid === userId) {
+        setUser(cached);
+        return cached;
       }
+
+      // Single optimized database query
+      const { data: profile, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // Profile doesn't exist - create basic user
+          const basicUser: User = {
+            uid: userId,
+            email: null,
+            displayName: null,
+            role: 'student',
+          };
+          setUser(basicUser);
+          return basicUser;
+        }
+        throw error;
+      }
+
+      // Convert to our User format
+      const userData: User = {
+        uid: profile.id,
+        email: profile.email || null,
+        displayName: profile.full_name || profile.email?.split('@')[0] || null,
+        role: profile.role || 'student',
+        usn: profile.usn || profile.student_id,
+        branch: profile.branch || profile.department,
+        semester: profile.semester || profile.year_of_study?.toString(),
+        assignedBranches: profile.assigned_branches,
+        assignedSemesters: profile.assigned_semesters,
+        rejectionReason: profile.rejection_reason,
+        is_approved: profile.is_approved,
+      };
+
+      // Cache the profile
+      setCachedProfile(userData);
+      setUser(userData);
+
+      // Generate notifications for the user
+      setTimeout(() => checkAndGenerateNotifications(userData), 1000);
+
+      return userData;
+
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      return null;
     }
-    return profile.role;
   };
 
   useEffect(() => {
-    setIsLoading(true);
-    
-    // Check for existing Supabase session
-    const getSession = async () => {
-      const { data: { session }, error } = await supabase.auth.getSession();
-      
-      if (error) {
-        console.error('Error getting session:', error);
-      }
-      
-      if (session?.user) {
-        console.log('🔄 Initial session found, fetching profile...');
-        
-        // Fetch profile data for the authenticated user (same as sign-in flow)
-        let profileData = null;
-        const { data: fetchedProfileData, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-        
-        profileData = fetchedProfileData;
-        
-        console.log('🔄 getSession profile fetch result:', {
-          hasProfileData: !!profileData,
-          profileError,
-          profileErrorCode: profileError?.code,
-          userId: session.user.id,
-          profileDataSnippet: profileData ? {
-            id: profileData.id,
-            email: profileData.email,
-            branch: profileData.branch,
-            semester: profileData.semester,
-            usn: profileData.usn
-          } : null
-        });
+    let mounted = true;
+    let authInitialized = false;
 
-        if (profileError) {
-          console.error('❌ Error fetching profile in getSession:', profileError);
-          
-          // Try to migrate profile by email if profile fetch failed (including PGRST116)
-          console.log('🔄 Attempting profile migration in getSession for user:', session.user.id, 'email:', session.user.email);
-          const migratedProfile = await migrateProfileByUsn(session.user.id, session.user.email || '');
-          
-          if (migratedProfile) {
-            console.log('✅ Profile migration successful in getSession, retrying profile fetch');
-            // Retry profile fetch with migrated profile
-            const { data: retryProfileData, error: retryError } = await supabase
-              .from('user_profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .single();
-              
-            if (!retryError && retryProfileData) {
-              console.log('✅ Profile fetch successful after migration in getSession');
-              profileData = retryProfileData;
-            }
+    const initializeAuth = async () => {
+      try {
+        console.log('🔐 Initializing authentication...');
+        const { data: { session }, error } = await supabase.auth.getSession();
+
+        if (error) {
+          console.error('❌ Auth session error:', error);
+          if (mounted) setIsLoading(false);
+          return;
+        }
+
+        if (session?.user && mounted) {
+          console.log('✅ Found existing session, loading profile...');
+          // Don't set isLoading to false yet - wait for profile to load
+          const userData = await fetchProfile(session.user.id);
+          if (userData && mounted) {
+            console.log('✅ Profile loaded successfully');
+            authInitialized = true;
           } else {
-            console.log('⚠️ Profile migration failed in getSession');
-            // For PGRST116 (no profile exists), we can still create a basic user object
-            if (profileError.code === 'PGRST116') {
-              console.log('📝 No profile exists in getSession, creating user object with basic info');
-              const basicUser: User = {
-                uid: session.user.id,
-                email: session.user.email || null,
-                displayName: session.user.user_metadata?.displayName || session.user.user_metadata?.name || session.user.email?.split('@')[0] || null,
-                role: session.user.user_metadata?.role || 'student',
-                // No branch/semester/usn yet - profile needs to be created
-              };
-              setUser(basicUser);
-              checkAndGenerateNotifications(basicUser);
-              setIsLoading(false);
-              return;
-            }
+            console.log('⚠️ Profile load failed');
           }
-        }  
-        
-        // Convert Supabase user to our User format (same as sign-in flow)
-        const user: User = {
-          uid: session.user.id,
-          email: session.user.email || null,
-          displayName: profileData?.full_name || session.user.user_metadata?.displayName || session.user.user_metadata?.name || session.user.email?.split('@')[0] || null,
-          role: profileData?.role || session.user.user_metadata?.role || 'student',
-          usn: profileData?.usn || profileData?.student_id,
-          branch: profileData?.branch || profileData?.department,
-          semester: profileData?.semester || profileData?.year_of_study?.toString(),
-          assignedBranches: profileData?.assigned_branches,
-          assignedSemesters: profileData?.assigned_semesters,
-        };
-        
-        console.log('🔄 User object from getSession:', {
-          uid: user.uid,
-          branch: user.branch,
-          semester: user.semester,
-          hasBranch: !!user.branch,
-          hasSemester: !!user.semester
-        });
-        
-        setUser(user);
-        console.log('✅ User object SET in context from getSession');
-        checkAndGenerateNotifications(user);
-      } else {
-        setUser(null);
+        } else {
+          console.log('ℹ️ No existing session found');
+          authInitialized = true; // No session to load, so we're done
+        }
+
+        // Only set loading to false after we've fully initialized
+        if (mounted) {
+          console.log('🏁 Auth initialization complete');
+          setIsLoading(false);
+        }
+
+      } catch (error) {
+        console.error('❌ Error initializing auth:', error);
+        if (mounted) setIsLoading(false);
       }
-      
-      setIsLoading(false);
     };
 
-    getSession();
+    initializeAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔄 Auth state change:', event, !!session);
+      if (!mounted) return;
 
-      if (session?.user) {
-        console.log('🔍 Fetching profile for auth state change, userId:', session.user.id);
+      console.log('🔄 Auth state change:', event, !!session?.user);
 
-        // Fetch profile data for the authenticated user
-        let profileData = null;
-        const { data: fetchedProfileData, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-        
-        profileData = fetchedProfileData;
-
-        console.log('📊 Profile fetch result:', {
-          hasProfileData: !!profileData,
-          profileError,
-          profileErrorCode: profileError?.code,
-          profileErrorMessage: profileError?.message,
-          profileErrorDetails: profileError?.details,
-          profileErrorHint: profileError?.hint,
-          profileDataKeys: profileData ? Object.keys(profileData) : null,
-          profileDataSnippet: profileData ? {
-            id: profileData.id,
-            email: profileData.email,
-            branch: profileData.branch,
-            semester: profileData.semester,
-            usn: profileData.usn
-          } : null
-        });
-
-        if (profileError) {
-          console.error('❌ Error fetching profile on auth change:', profileError);
-          
-          // Try to migrate profile by email if profile fetch failed (including PGRST116)
-          console.log('🔄 Attempting profile migration for user:', session.user.id, 'email:', session.user.email);
-          const migratedProfile = await migrateProfileByUsn(session.user.id, session.user.email || '');
-          
-          if (migratedProfile) {
-            console.log('✅ Profile migration successful, retrying profile fetch');
-            // Retry profile fetch with migrated profile
-            const { data: retryProfileData, error: retryError } = await supabase
-              .from('user_profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .single();
-              
-            if (!retryError && retryProfileData) {
-              console.log('✅ Profile fetch successful after migration');
-              profileData = retryProfileData;
-            }
-          } else {
-            console.log('⚠️ Profile migration failed or no profile to migrate');
-            // For PGRST116 (no profile exists), create a basic user object but try to get profile data another way
-            if (profileError.code === 'PGRST116') {
-              console.log('📝 Trying alternative profile fetch...');
-              
-              // Try to get profile by email instead of ID
-              const { data: emailProfile, error: emailError } = await supabase
-                .from('user_profiles')
-                .select('*')
-                .eq('email', session.user.email)
-                .single();
-                
-              if (!emailError && emailProfile) {
-                console.log('✅ Found profile by email, updating ID and using data');
-                // Update the profile ID to match
-                await supabase
-                  .from('user_profiles')
-                  .update({ id: session.user.id })
-                  .eq('email', session.user.email);
-                  
-                profileData = emailProfile;
-                profileData.id = session.user.id; // Override ID for user object
-              } else {
-                console.log('📝 No profile found, creating basic user object');
-                const basicUser: User = {
-                  uid: session.user.id,
-                  email: session.user.email || null,
-                  displayName: session.user.user_metadata?.displayName || session.user.user_metadata?.name || session.user.email?.split('@')[0] || null,
-                  role: session.user.user_metadata?.role || 'student',
-                  // No branch/semester/usn yet - profile needs to be created
-                };
-                setUser(basicUser);
-                checkAndGenerateNotifications(basicUser);
-                setIsLoading(false);
-                return;
-              }
-            } else {
-              // For other errors, don't update user object
-              setIsLoading(false);
-              return;
-            }
-          }
+      if (event === 'SIGNED_IN' && session?.user) {
+        console.log('✅ User signed in, loading profile...');
+        // Don't set isLoading to false yet - wait for profile to load
+        const userData = await fetchProfile(session.user.id);
+        if (userData) {
+          console.log('✅ Profile loaded for signed-in user');
+          authInitialized = true;
         }
-
-        // Only create and set user object if we have profile data or it's a new profile
-        const user: User = {
-          uid: session.user.id,
-          email: session.user.email || null,
-          displayName: profileData?.full_name || session.user.user_metadata?.displayName || session.user.user_metadata?.name || session.user.email?.split('@')[0] || null,
-          role: profileData?.role || session.user.user_metadata?.role || 'student',
-          usn: profileData?.usn || profileData?.student_id,
-          branch: profileData?.branch || profileData?.department,
-          semester: profileData?.semester || profileData?.year_of_study?.toString(),
-          assignedBranches: profileData?.assigned_branches,
-          assignedSemesters: profileData?.assigned_semesters,
-        };
-
-        console.log('🔄 FINAL User object being set:', {
-          uid: user.uid,
-          usn: user.usn,
-          branch: user.branch,
-          semester: user.semester,
-          hasUsn: !!user.usn,
-          profileDataUsn: profileData?.usn,
-          profileDataStudentId: profileData?.student_id
-        });
-
-        setUser(user);
-        console.log('✅ User object SET in context from auth state change');
-        checkAndGenerateNotifications(user);
-      } else {
-        console.log('🔄 User logged out');
+      } else if (event === 'SIGNED_OUT') {
+        console.log('🚪 User signed out');
         setUser(null);
+        clearCache();
+        authInitialized = true;
       }
-      setIsLoading(false);
+
+      // For SIGNED_IN events, we wait for profile to load before setting loading to false
+      // For SIGNED_OUT, we can set it immediately
+      if (event === 'SIGNED_OUT' || (event === 'SIGNED_IN' && authInitialized)) {
+        setIsLoading(false);
+      }
     });
 
-    // Remove the old update notification logic since it's commented out
-
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
-  }, []); 
+  }, []);
 
   const signIn = async (credentials: { username: string; password: string }): Promise<User> => {
     setIsLoading(true);
-    
+
     try {
       let authEmail = credentials.username;
-      
-      // Check if username looks like a USN (contains numbers or is not an email format)
-      const isEmail = credentials.username.includes('@');
-      
-      if (!isEmail) {
-        // Assume it's a USN - look up the student in the database
-        const { data: studentProfile, error: lookupError } = await supabase
+
+      // Handle USN login
+      if (!credentials.username.includes('@')) {
+        const { data: userProfile } = await supabase
           .from('user_profiles')
-          .select('email, usn, student_id')
+          .select('email, usn, student_id, role')
           .or(`usn.eq.${credentials.username},student_id.eq.${credentials.username}`)
-          .eq('role', 'student')
+          .in('role', ['student', 'alumni'])
           .single();
-        
-        if (lookupError || !studentProfile) {
-          throw new Error('Student not found. Please check your USN.');
+
+        if (!userProfile?.email) {
+          throw new Error('User not found. Please check your USN or use your email to login.');
         }
-        
-        if (!studentProfile.email) {
-          throw new Error('Student account not properly configured. Please contact admin.');
-        }
-        
-        authEmail = studentProfile.email;
+
+        authEmail = userProfile.email;
       }
-      
-      // Now authenticate with Supabase using the email
+
+      // Authenticate with Supabase
       const { data, error } = await supabase.auth.signInWithPassword({
         email: authEmail,
         password: credentials.password,
       });
 
-      if (error) {
-        throw new Error(error.message);
+      if (error) throw new Error(error.message);
+      if (!data.user) throw new Error('Login failed');
+
+      // Check approval status
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('role, is_approved, rejection_reason')
+        .eq('id', data.user.id)
+        .single();
+
+      if (profile?.role === 'student' && !profile?.is_approved) {
+        const reason = profile?.rejection_reason || 'Your account is pending approval.';
+        throw new Error(`Account not approved: ${reason}`);
       }
 
-      if (data.user) {
-        // Migrate profile ID if it doesn't match auth user ID
-        if (!isEmail) {
-          console.log('🔄 Checking profile ID migration for user:', data.user.id, 'with email:', data.user.email);
-          await migrateProfileByUsn(data.user.id, data.user.email || '');
-        }
+      // Fetch and cache complete profile
+      const userData = await fetchProfile(data.user.id);
+      if (!userData) throw new Error('Failed to load profile');
 
-        // Get the full profile from our database
-        const { data: profileData, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('id', data.user.id)
-          .single();
-        
-        if (profileError) {
-          throw new Error('Profile not found. Please contact administration.');
-        }
+      // Generate notifications for the newly signed-in user
+      setTimeout(() => checkAndGenerateNotifications(userData), 2000);
 
-        // Check if student is approved (only for student role)
-        if (profileData.role === 'student' && !profileData.is_approved) {
-          const reason = profileData.rejection_reason || 'Your account is pending approval.';
-          throw new Error(`Account not approved: ${reason}`);
-        }
+      setIsLoading(false);
+      return userData;
 
-        if (profileData.role === 'pending' && !profileData.is_approved) {
-          const reason = profileData.rejection_reason || 'Your account is pending approval.';
-          throw new Error(`Account not approved: ${reason}`);
-        }
-
-        const user: User = {
-          uid: data.user.id,
-          email: data.user.email || null,
-          displayName: profileData?.full_name || data.user.user_metadata?.displayName || data.user.user_metadata?.name || data.user.email?.split('@')[0] || null,
-          role: profileData?.role || data.user.user_metadata?.role || 'student',
-          usn: profileData?.usn || profileData?.student_id,
-          branch: profileData?.branch || profileData?.department,
-          semester: profileData?.semester || profileData?.year_of_study?.toString(),
-          assignedBranches: profileData?.assigned_branches,
-          assignedSemesters: profileData?.assigned_semesters,
-        };
-
-        console.log('✅ Profile fetched successfully:', {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName,
-          role: user.role,
-          usn: user.usn,
-          branch: user.branch,
-          semester: user.semester
-        });
-
-        setUser(user);
-        console.log('✅ User object SET in context from sign-in');
-        console.log('🔍 Current user context after sign-in:', user);
-        checkAndGenerateNotifications(user);
-        setIsLoading(false);
-        return user;
-      } else {
-        throw new Error('Login failed');
-      }
     } catch (error) {
       setIsLoading(false);
       throw error;
@@ -425,28 +280,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signOut = async () => {
-    setIsLoading(true);
+    // Instant logout - clear state immediately
+    setUser(null);
+    clearCache();
+
+    // Handle Supabase signOut in background
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        throw new Error(error.message);
-      }
-      setUser(null);
-      router.push('/login'); // Navigate to login page after sign out
-    } catch (error) {
-      console.error('Error signing out:', error);
-    } finally {
-      setIsLoading(false);
+      await supabase.auth.signOut();
+    } catch (error: any) {
+      console.warn('Background signOut error:', error?.message);
     }
   };
 
   const updateUserContext = (updatedUser: User) => {
     setUser(updatedUser);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('mockUser', JSON.stringify(updatedUser));
-    }
+    setCachedProfile(updatedUser);
   };
-
 
   return (
     <AuthContext.Provider value={{ user, isLoading, signIn, signOut, updateUserContext }}>

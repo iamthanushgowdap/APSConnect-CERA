@@ -5,8 +5,9 @@ import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import type { Report, ReportStatus } from '@/types';
 import { REPORT_STORAGE_KEY } from '@/types';
+import { Button } from "@/components/ui/button";
+import ParticleBackground from "@/components/ui/particle-background";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCnCardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,12 +21,11 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import Link from 'next/link';
-import { ShieldCheck, ListChecks, Eye, CheckCircle, Archive, Filter, ArrowLeft, Search as SearchIcon, Trash2 } from 'lucide-react';
+import { ShieldCheck, ListChecks, Filter, ArrowLeft, Info, Search as SearchIcon, Trash2 } from 'lucide-react';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 
@@ -41,19 +41,37 @@ export default function AdminReportsPage() {
   const [pageLoading, setPageLoading] = useState(true);
   
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
-  const [dialogAction, setDialogAction] = useState<'resolve' | 'archive' | 'delete' | null>(null);
-  const [resolutionNotes, setResolutionNotes] = useState('');
+  const [dialogAction, setDialogAction] = useState<'delete' | null>(null);
   
   const [filterStatus, setFilterStatus] = useState<ReportStatus | 'all'>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const fetchReports = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      const storedReports = localStorage.getItem(REPORT_STORAGE_KEY);
-      const reports: Report[] = storedReports ? JSON.parse(storedReports) : [];
-      setAllReports(reports.sort((a,b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()));
+  const fetchReports = useCallback(async () => {
+    if (!user) {
+      setAllReports([]);
+      return;
     }
-  }, []);
+
+    try {
+      // Fetch only admin reports - faculty reports are handled by faculty dashboard
+      const { data, error } = await supabase
+        .from('reports')
+        .select('*')
+        .eq('recipientType', 'admin')
+        .order('submittedAt', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching reports:', error);
+        setAllReports([]);
+        return;
+      }
+
+      setAllReports(data || []);
+    } catch (error) {
+      console.error('Error in fetchReports:', error);
+      setAllReports([]);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!authLoading) {
@@ -79,73 +97,54 @@ export default function AdminReportsPage() {
         r.submittedByName?.toLowerCase().includes(termLower) ||
         r.submittedByUsn?.toLowerCase().includes(termLower) ||
         r.contextBranch?.toLowerCase().includes(termLower) ||
-        r.contextSemester?.toLowerCase().includes(termLower) ||
-        r.resolutionNotes?.toLowerCase().includes(termLower)
+        r.contextSemester?.toLowerCase().includes(termLower)
       );
     }
     setFilteredReports(currentReports);
   }, [allReports, filterStatus, searchTerm]);
 
-  const updateReportStatus = (reportId: string, newStatus: ReportStatus, notes?: string) => {
-    const updatedReports = allReports.map(report => {
-      if (report.id === reportId) {
-        const updatedReportData: Report = { ...report, status: newStatus };
-        if (newStatus === 'viewed' && !report.viewedAt) updatedReportData.viewedAt = new Date().toISOString();
-        if (newStatus === 'resolved') {
-          updatedReportData.resolvedAt = new Date().toISOString();
-          updatedReportData.resolvedByUid = user?.uid;
-          updatedReportData.resolutionNotes = notes || report.resolutionNotes;
-        }
-        return updatedReportData;
-      }
-      return report;
-    });
-    setAllReports(updatedReports);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(REPORT_STORAGE_KEY, JSON.stringify(updatedReports));
-    }
-    toast({ title: "Report Updated", description: `Report ${reportId.substring(0,8)} status changed to ${newStatus}.`, duration: 3000 });
-  };
+  const handleDeleteReport = async (reportId: string) => {
+    if (!user) return;
 
-  const handleDeleteReport = (reportId: string) => {
-    const updatedReports = allReports.filter(report => report.id !== reportId);
-    setAllReports(updatedReports);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(REPORT_STORAGE_KEY, JSON.stringify(updatedReports));
+    try {
+      const { error } = await supabase
+        .from('reports')
+        .delete()
+        .eq('id', reportId);
+
+      if (error) throw error;
+
+      // Refresh reports
+      await fetchReports();
+      toast({
+        title: "Report Deleted",
+        description: `Report ${reportId.substring(0,8)} has been deleted.`,
+        duration: 3000
+      });
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      toast({
+        title: "Delete Failed",
+        description: "Failed to delete report. Please try again.",
+        variant: "destructive",
+        duration: 3000
+      });
     }
-    toast({ title: "Report Deleted", description: `Report ${reportId.substring(0,8)} has been deleted.`, duration: 3000 });
   };
 
   const handleDialogAction = () => {
     if (!selectedReport || !dialogAction) return;
 
-    if (dialogAction === 'resolve' && !resolutionNotes.trim()) {
-        toast({ title: "Notes Required", description: "Please provide resolution notes.", variant: "destructive", duration: 3000});
-        return;
-    }
     if (dialogAction === 'delete') {
         handleDeleteReport(selectedReport.id);
-    } else {
-        updateReportStatus(selectedReport.id, dialogAction === 'resolve' ? 'resolved' : 'archived', resolutionNotes);
     }
     setSelectedReport(null);
     setDialogAction(null);
-    setResolutionNotes('');
   };
 
-  const openActionDialog = (report: Report, action: 'resolve' | 'archive' | 'delete') => {
+  const openActionDialog = (report: Report, action: 'delete') => {
     setSelectedReport(report);
     setDialogAction(action);
-    setResolutionNotes(report.resolutionNotes || '');
-     if (action === 'archive' && report.status !== 'resolved') {
-      toast({ title: "Action Not Allowed", description: "Only resolved reports can be archived.", variant: "destructive", duration: 3000});
-      setSelectedReport(null);
-      setDialogAction(null);
-      return;
-    }
-    if (report.status === 'new' && action !== 'delete') { // Mark as viewed when opening action dialog, unless it's delete
-      updateReportStatus(report.id, 'viewed');
-    }
   };
 
   if (pageLoading || authLoading) {
@@ -161,8 +160,11 @@ export default function AdminReportsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex justify-between items-center mb-4 relative z-10">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center"><ListChecks className="mr-3 h-7 w-7" /> Submitted Concerns / Reports</h1>
         <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back"><ArrowLeft className="h-5 w-5" /></Button>
       </div>
@@ -226,11 +228,10 @@ export default function AdminReportsPage() {
                       </TableCell>
                       <TableCell><Badge variant={report.status === 'new' ? 'default' : report.status === 'resolved' ? 'outline' : report.status === 'archived' ? 'secondary': 'destructive'} className={`capitalize ${report.status === 'new' ? 'bg-accent text-accent-foreground' : report.status === 'viewed' ? 'bg-blue-500 text-white' : ''}`}>{report.status}</Badge></TableCell>
                       <TableCell className="text-xs max-w-md whitespace-pre-wrap break-words">{report.reportContent}</TableCell>
-                      <TableCell className="text-right space-x-1">
-                        {report.status === 'new' && <Button variant="outline" size="sm" onClick={() => updateReportStatus(report.id, 'viewed')}><Eye className="mr-1 h-3 w-3"/>Mark Viewed</Button>}
-                        {report.status !== 'resolved' && report.status !== 'archived' && <Button variant="default" size="sm" onClick={() => openActionDialog(report, 'resolve')}><CheckCircle className="mr-1 h-3 w-3"/>Resolve</Button>}
-                        {report.status === 'resolved' && <Button variant="secondary" size="sm" onClick={() => openActionDialog(report, 'archive')}><Archive className="mr-1 h-3 w-3"/>Archive</Button>}
-                         <Button variant="destructive" size="sm" onClick={() => openActionDialog(report, 'delete')}><Trash2 className="mr-1 h-3 w-3"/>Delete</Button>
+                      <TableCell className="text-right">
+                        <Button variant="destructive" size="sm" onClick={() => openActionDialog(report, 'delete')}>
+                          <Trash2 className="mr-1 h-3 w-3"/>Delete
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -241,30 +242,21 @@ export default function AdminReportsPage() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={!!selectedReport && (dialogAction === 'resolve' || dialogAction === 'archive' || dialogAction === 'delete')} onOpenChange={() => {setSelectedReport(null); setDialogAction(null); setResolutionNotes('');}}>
+      <AlertDialog open={!!selectedReport && dialogAction === 'delete'} onOpenChange={() => {setSelectedReport(null); setDialogAction(null);}}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirm: {dialogAction === 'resolve' ? 'Resolve Report' : dialogAction === 'archive' ? 'Archive Report' : 'Delete Report'}</AlertDialogTitle>
+            <AlertDialogTitle>Confirm: Delete Report</AlertDialogTitle>
             <AlertDialogDescription>
               For report ID: {selectedReport?.id.substring(0,8)}...
-              {dialogAction === 'resolve' && " Please provide notes on how this concern was addressed. This will mark the report as resolved."}
-              {dialogAction === 'archive' && " This will archive the resolved report. It will no longer appear in the main list unless 'Archived' status is filtered."}
-              {dialogAction === 'delete' && " Are you sure you want to delete this report? This action cannot be undone."}
+              Are you sure you want to delete this report? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {dialogAction === 'resolve' && (
-            <div className="py-2 space-y-1">
-              <Label htmlFor="resolutionNotes" className="text-sm font-medium">Resolution Notes (Required)</Label>
-              <Textarea id="resolutionNotes" value={resolutionNotes} onChange={(e) => setResolutionNotes(e.target.value)} placeholder="Describe actions taken or outcome..." rows={4}/>
-            </div>
-          )}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
-                onClick={handleDialogAction} 
-                disabled={dialogAction==='resolve' && !resolutionNotes.trim()} 
-                className={dialogAction === 'archive' ? "bg-gray-500 hover:bg-gray-600" : dialogAction === 'delete' ? 'bg-destructive hover:bg-destructive/90' : ""}>
-              {dialogAction === 'resolve' ? 'Mark Resolved' : dialogAction === 'archive' ? 'Confirm Archive' : 'Confirm Delete'}
+            <AlertDialogAction
+                onClick={handleDialogAction}
+                className="bg-destructive hover:bg-destructive/90">
+              Confirm Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

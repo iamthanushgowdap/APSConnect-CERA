@@ -24,7 +24,7 @@ export function AssignmentItem({ assignment }: AssignmentItemProps) {
   const handleDownload = async (attachment: AssignmentAttachment) => {
     try {
       toast({ title: "Download Started", description: `Downloading ${attachment.name}...`, duration: 3000 });
-      const blob = await downloadFile('assignments', attachment.filePath);
+      const blob = await downloadFile('chat-attachments', attachment.filePath);
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = attachment.name;

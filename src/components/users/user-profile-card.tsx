@@ -6,6 +6,7 @@ import type { UserProfile, Subject } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { RoleBadge } from '@/components/ui/role-badge';
 import { Mail, Briefcase, Award, GraduationCap, Users, BookOpen, User as UserIcon } from 'lucide-react';
 import { getInitials } from '@/components/content/post-item-utils';
 import { SUBJECT_STORAGE_KEY } from '@/types';
@@ -21,7 +22,7 @@ export function UserProfileCard({ profile }: UserProfileCardProps) {
         if (profile.role === 'faculty' && typeof window !== 'undefined') {
             const allSubjectsStr = localStorage.getItem(SUBJECT_STORAGE_KEY);
             const allSubjects: Subject[] = allSubjectsStr ? JSON.parse(allSubjectsStr) : [];
-            const facultySubjects = allSubjects.filter(subject => subject.assignedFacultyUids.includes(profile.uid));
+            const facultySubjects = allSubjects.filter(subject => subject.assignedFacultyUids?.includes(profile.id));
             setAssignedSubjects(facultySubjects);
         }
     }, [profile]);
@@ -32,18 +33,16 @@ export function UserProfileCard({ profile }: UserProfileCardProps) {
     <Card className="shadow-md hover:shadow-lg transition-shadow duration-300 rounded-lg h-full">
       <CardHeader className="flex flex-row items-center space-x-4 pb-3">
         <Avatar className="h-16 w-16">
-          <AvatarImage src={profile.avatarDataUrl} alt={profile.displayName || profile.email} data-ai-hint="person avatar" />
+          <AvatarImage src={profile.avatar_url} alt={profile.display_name || profile.email} data-ai-hint="person avatar" />
           <AvatarFallback className="text-xl bg-muted text-muted-foreground">
-            {getInitials(profile.displayName || profile.email)}
+            {getInitials(profile.display_name || profile.email)}
           </AvatarFallback>
         </Avatar>
         <div>
-          <CardTitle className="text-lg font-semibold">{profile.displayName || 'N/A'}</CardTitle>
+          <CardTitle className="text-lg font-semibold">{profile.full_name || 'N/A'}</CardTitle>
           <CardDescription className="text-sm">
-            <Badge variant={profile.role === 'admin' ? 'destructive' : profile.role === 'faculty' ? 'secondary' : (isAlumni ? 'default' : 'outline')} className={`capitalize mr-2 ${isAlumni ? 'bg-blue-600 text-white' : ''}`}>
-              {profile.role}
-            </Badge>
-            {profile.usn && !isAlumni && <span className="text-xs text-muted-foreground">USN: {profile.usn}</span>}
+            <RoleBadge role={profile.role} size="sm" />
+            {profile.role === 'student' && !isAlumni && <span className="text-xs text-muted-foreground">USN: {profile.student_id || profile.usn || 'Not provided'}</span>}
              {profile.pronouns && <span className="text-xs text-muted-foreground ml-1">({profile.pronouns})</span>}
           </CardDescription>
         </div>
@@ -61,38 +60,38 @@ export function UserProfileCard({ profile }: UserProfileCardProps) {
         )}
         {isAlumni && (
           <>
-            {profile.placementCompany && (
+            {profile.placement_company && (
                  <div className="flex items-center text-muted-foreground">
                     <Briefcase className="h-4 w-4 mr-2" />
-                    <span>{profile.placementCompany}</span>
+                    <span>{profile.placement_company}</span>
                 </div>
             )}
-            {profile.placementJobTitle && (
+            {profile.placement_job_title && (
                  <div className="flex items-center text-muted-foreground">
                     <UserIcon className="h-4 w-4 mr-2" />
-                    <span>{profile.placementJobTitle}</span>
+                    <span>{profile.placement_job_title}</span>
                 </div>
             )}
           </>
         )}
         {profile.role === 'faculty' && (
           <>
-            {profile.facultyTitle && (
+            {profile.faculty_title && (
               <div className="flex items-center text-muted-foreground">
                 <Briefcase className="h-4 w-4 mr-2" />
-                <span>{profile.facultyTitle}</span>
+                <span>{profile.faculty_title}</span>
               </div>
             )}
-            {profile.assignedBranches && profile.assignedBranches.length > 0 && (
+            {profile.assigned_branches && profile.assigned_branches.length > 0 && (
               <div className="flex items-center text-muted-foreground">
                 <Users className="h-4 w-4 mr-2" />
-                <span>Branches: {profile.assignedBranches.join(', ')}</span>
+                <span>Branches: {profile.assigned_branches.join(', ')}</span>
               </div>
             )}
-            {profile.assignedSemesters && profile.assignedSemesters.length > 0 && (
+            {profile.assigned_semesters && profile.assigned_semesters.length > 0 && (
                 <div className="flex items-center text-muted-foreground">
                     <BookOpen className="h-4 w-4 mr-2" />
-                    <span>Semesters: {profile.assignedSemesters.join(', ')}</span>
+                    <span>Semesters: {profile.assigned_semesters.join(', ')}</span>
                 </div>
             )}
             {assignedSubjects.length > 0 && (
@@ -113,9 +112,9 @@ export function UserProfileCard({ profile }: UserProfileCardProps) {
           </>
         )}
          {profile.role === 'pending' && (
-          <div className={`flex items-center ${profile.rejectionReason ? 'text-red-600' : 'text-yellow-600'}`}>
+          <div className={`flex items-center ${profile.rejection_reason ? 'text-red-600' : 'text-yellow-600'}`}>
             <Award className="h-4 w-4 mr-2" />
-            <span>Status: Pending {profile.rejectionReason ? `(Rejected: ${profile.rejectionReason.substring(0,30)}...)` : '(Awaiting Approval)'}</span>
+            <span>Status: Pending {profile.rejection_reason ? `(Rejected: ${profile.rejection_reason.substring(0,30)}...)` : '(Awaiting Approval)'}</span>
           </div>
         )}
       </CardContent>

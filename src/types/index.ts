@@ -5,7 +5,7 @@ import { z } from "zod";
 export type UserRole = "student" | "admin" | "pending" | "faculty" | "alumni";
 
 // Branch type is now string to allow admins to define custom branch names.
-export type Branch = string;
+export type Branch = string | "ALL";
 
 // defaultBranches provides a list of common/suggested branches for forms.
 export const defaultBranches: Branch[] = [
@@ -26,7 +26,8 @@ export type Semester =
   | "5th Sem"
   | "6th Sem"
   | "7th Sem"
-  | "8th Sem";
+  | "8th Sem"
+  | "ALL"; // Special value for groups that apply to all semesters
 export const semesters: Semester[] = [
   "1st Sem",
   "2nd Sem",
@@ -158,9 +159,6 @@ export interface UserProfile {
 export interface SiteSettingsData {
   collegeLogoUrl?: string;
   contactEmail?: string;
-  enableStudentRegistration?: boolean;
-  maintenanceMode?: boolean;
-  maintenanceMessage?: string;
   socialFacebook?: string;
   socialTwitter?: string;
   socialLinkedIn?: string;
@@ -295,6 +293,7 @@ export interface StudyMaterialAttachment {
   type: string;
   size: number;
   mockFileId: string;
+  base64Content?: string; // Optional base64 content for file storage
 }
 
 export interface StudyMaterial {
@@ -304,9 +303,10 @@ export interface StudyMaterial {
   title: string;
   description?: string;
   attachments: StudyMaterialAttachment[];
-  uploadedByUid: string;
-  uploadedByDisplayName: string;
-  uploadedAt: string;
+  uploaded_by: string; // Changed from uploadedByUid to match database
+  uploaded_by_display_name: string; // Changed to match database
+  created_at: string; // Changed to match database
+  updated_at?: string; // Added for database
 }
 
 export const STUDY_MATERIAL_STORAGE_KEY = "apsconnect_study_materials";
@@ -401,6 +401,8 @@ export type ReportStatus = "new" | "viewed" | "resolved" | "archived";
 export interface Report {
   id: string;
   recipientType: ReportRecipientType;
+  recipient_uid?: string; // Specific faculty/admin member (optional)
+  recipient_name?: string; // Display name of recipient
   reportContent: string;
   submittedAt: string;
   status: ReportStatus;
@@ -433,13 +435,22 @@ export interface Group {
 }
 
 export interface GroupMessage {
-    id: string; // UUID
-    groupId: string;
-    authorUid: string;
-    authorName: string;
-    authorAvatarUrl?: string;
-    content: string;
-    timestamp: string; // ISO String
+  id: string; // UUID
+  group_id: string;
+  author_uid: string;
+  author_name: string;
+  author_avatar_url?: string;
+  content: string;
+  timestamp: string; // ISO String
+  created_at?: string;
+  reactions?: { emoji: string; count: number; users: string[] }[];
+  // New file attachment fields
+  message_type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'file';
+  file_name?: string;
+  file_size?: number;
+  file_type?: string;
+  file_url?: string;
+  attachments?: any[];
 }
 
 export const GROUP_MESSAGES_STORAGE_KEY = 'apsconnect_group_messages';
@@ -488,12 +499,38 @@ export const FUNDRAISING_CAMPAIGN_STORAGE_KEY = "apsconnect_fundraising_campaign
 export const STUDENT_FUNDRAISING_STATUS_STORAGE_KEY = "apsconnect_student_fundraising_status";
 
 
+// Events Management
+export interface Event {
+  id: string;
+  title: string;
+  description: string;
+  event_date: string; // YYYY-MM-DD
+  event_time?: string; // HH:MM format
+  location?: string;
+  event_type: 'academic' | 'cultural' | 'sports' | 'workshop' | 'seminar' | 'other';
+  target_audience: ('student' | 'faculty' | 'alumni')[];
+  target_branches?: Branch[];
+  target_semesters?: Semester[];
+  image_url?: string;
+  registration_link?: string;
+  registration_deadline?: string; // YYYY-MM-DD
+  created_by_uid: string;
+  created_by_name: string;
+  created_at: string;
+  updated_at?: string;
+  is_active: boolean;
+}
+
+export const EVENT_STORAGE_KEY = 'apsconnect_events';
+
 // In-App Notifications
 export type NotificationType =
   | 'approval'
   | 'assignment_deadline'
   | 'fee_due'
-  | 'low_attendance';
+  | 'low_attendance'
+  | 'group_message'
+  | 'event';
 
 export interface Notification {
   id: string; // Unique ID, e.g., `${userId}-${type}-${relatedId}`

@@ -113,11 +113,13 @@ export function AssignmentForm({
   };
 
   const onSubmit = async (data: AssignmentFormValues) => {
+    console.log('🎯 Assignment form onSubmit triggered with data:', data);
     if (!user) {
+      console.log('❌ No user found in assignment form');
       toast({ title: "Authentication Error", description: "You must be logged in.", variant: "destructive" });
       return;
     }
-    console.log('Assignment form: Starting submission with data:', data);
+    console.log('📝 Assignment form: Starting submission with data:', data);
     setIsLoading(true);
 
     try {
@@ -127,7 +129,7 @@ export function AssignmentForm({
       if (data.attachments) {
         for (const file of Array.from(data.attachments)) {
           const filePath = `assignments/${assignmentId}/${file.name}`;
-          await uploadFile('assignments', filePath, file);
+          await uploadFile('chat-attachments', filePath, file);
           uploadedAttachments.push({
             name: file.name,
             type: file.type,
@@ -137,6 +139,14 @@ export function AssignmentForm({
         }
       }
 
+      console.log('📝 Assignment form: About to call createAssignment with:', {
+        title: data.title,
+        branch: data.branch,
+        semester: data.semester,
+        instructor_id: user.uid
+      });
+
+      console.log('🚀 Calling createAssignment now...');
       const createdAssignment = initialData?.id 
         ? await updateAssignment(initialData.id, {
             branch: data.branch,
@@ -159,6 +169,7 @@ export function AssignmentForm({
             instructor_name: user.displayName || user.email || 'Unknown User',
           });
 
+      console.log('✅ Assignment creation completed, result:', createdAssignment);
       onSubmitSuccess(createdAssignment);
       toast({ title: initialData ? "Assignment Updated" : "Assignment Posted", description: `"${createdAssignment.title}" processed.` });
     } catch (error) {

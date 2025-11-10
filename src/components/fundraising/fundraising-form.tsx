@@ -1,7 +1,6 @@
-
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
@@ -33,7 +32,13 @@ const fundraisingFormSchema = z.object({
   endDate: z.date({ required_error: "End date is required." }),
   targetBranches: z.array(z.string()).min(1, "At least one branch must be selected."),
   targetSemesters: z.array(z.custom<Semester>(val => semesters.includes(val as Semester))).min(1, "At least one semester must be selected."),
-  goalAmount: z.number().min(1, "Goal amount must be at least 1.").max(1000000, "Goal amount cannot exceed 10,00,000."),
+  goalAmount: z.union([
+    z.number().min(1, "Goal amount must be at least 1.").max(1000000, "Goal amount cannot exceed 10,00,000."),
+    z.string().transform((val) => {
+      const num = parseInt(val);
+      return isNaN(num) || num < 1 ? 1 : num;
+    })
+  ]),
   qrCode: z.any().refine(files => files instanceof FileList && files.length > 0, "QR code image is required.")
     .refine(files => files?.[0]?.size <= MAX_QR_SIZE, `QR code image must be less than 1MB.`)
     .refine(files => ALLOWED_QR_TYPES.includes(files?.[0]?.type), "Only .jpg, .png, and .webp formats are supported."),
@@ -51,20 +56,79 @@ export function FundraisingForm({ onSubmitSuccess, initialData, facultyUser }: F
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [qrPreview, setQrPreview] = useState<string | undefined>(initialData?.qrCodeDataUrl);
+  const [formData, setFormData] = useState<Partial<FundraisingFormValues>>({
+    title: '',
+    description: '',
+    contactDetails: '',
+    goalAmount: undefined,
+    startDate: undefined,
+    endDate: undefined,
+    targetBranches: [],
+    targetSemesters: [],
+  });
 
   const form = useForm<FundraisingFormValues>({
     resolver: zodResolver(fundraisingFormSchema),
     defaultValues: {
-      title: initialData?.title || "",
-      description: initialData?.description || "",
-      contactDetails: initialData?.contactDetails || "",
-      startDate: initialData ? new Date(initialData.startDate) : new Date(),
-      endDate: initialData ? new Date(initialData.endDate) : addDays(new Date(), 30),
-      targetBranches: initialData?.targetBranches || facultyUser.assignedBranches || [],
-      targetSemesters: initialData?.targetSemesters || facultyUser.assignedSemesters || [],
-      goalAmount: initialData?.goalAmount || 1000,
+      title: '',
+      description: '',
+      contactDetails: '',
+      goalAmount: undefined,
+      startDate: undefined,
+      endDate: undefined,
+      targetBranches: [],
+      targetSemesters: [],
+      qrCode: undefined,
     },
   });
+
+  useEffect(() => {
+    const loadDraft = async () => {
+      // First check Supabase
+      const { data } = await supabase
+        .from('drafts')
+        .select('data')
+        .eq('user_id', facultyUser.uid)
+        .eq('form_id', 'fundraising-campaign')
+        .single();
+        
+      if (data?.data) {
+        setFormData(data.data);
+        form.reset(data.data); // Reset form with loaded data
+        return;
+      }
+      
+      // Fallback to localStorage during transition
+      const localDraft = localStorage.getItem('draft-campaign');
+      if (localDraft) {
+        const draftData = JSON.parse(localDraft);
+        setFormData(draftData);
+        form.reset(draftData); // Reset form with loaded data
+      }
+    };
+    
+    loadDraft();
+  }, [facultyUser, form]);
+
+  // Initialize form with initialData for editing
+  useEffect(() => {
+    if (initialData) {
+      console.log('Initializing form with initial data:', initialData);
+      const formValues = {
+        title: initialData.title,
+        description: initialData.description,
+        contactDetails: initialData.contactDetails,
+        goalAmount: initialData.goalAmount,
+        startDate: new Date(initialData.startDate),
+        endDate: new Date(initialData.endDate),
+        targetBranches: initialData.targetBranches,
+        targetSemesters: initialData.targetSemesters,
+        qrCode: undefined, // QR code file can't be pre-filled
+      };
+      form.reset(formValues);
+      setQrPreview(initialData.qrCodeDataUrl);
+    }
+  }, [initialData, form]);
 
   const handleQrChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -116,7 +180,7 @@ export function FundraisingForm({ onSubmitSuccess, initialData, facultyUser }: F
       }
 
       // Validate and ensure goal amount is valid
-      const goalAmount = Math.max(1, data.goalAmount || 0);
+      const goalAmount = Math.max(1, parseInt(String(data.goalAmount)) || 1);
       console.log('Final goal amount to use:', goalAmount);
 
       const campaignData = {
@@ -183,6 +247,71 @@ export function FundraisingForm({ onSubmitSuccess, initialData, facultyUser }: F
 
       console.log('Campaign saved successfully:', insertedData);
 
+      // Create notifications for all students in the target branches/semesters
+      try {
+        console.log('🔔 Starting notification creation for fundraising campaign:', insertedData.id);
+        console.log('🔔 Campaign targets:', { branches: data.targetBranches, semesters: data.targetSemesters });
+
+        // Find all students in the target branches and semesters
+        const { data: students, error: studentsError } = await supabase
+          .from('user_profiles')
+          .select('id')
+          .eq('role', 'student')
+          .in('branch', data.targetBranches)
+          .in('semester', data.targetSemesters);
+
+        console.log('🔔 Students query result:', { students: students?.length, error: studentsError });
+
+        if (studentsError) {
+          console.error('❌ Error querying students for fundraising notifications:', studentsError);
+          console.error('Error details:', JSON.stringify(studentsError, null, 2));
+        } else if (students && students.length > 0) {
+          console.log('🔔 Found students for fundraising:', students.map(s => s.id));
+
+          const notifications = students.map(student => ({
+            id: `fundraising-${insertedData.id}-${student.id}-${Date.now()}`,
+            user_id: student.id,
+            type: 'fundraising_campaign',
+            title: 'New Fundraising Campaign',
+            message: `A new fundraising campaign "${data.title}" has been launched for your branch and semester. Help contribute to this worthy cause!`,
+            href: '/student/fundraising',
+            created_at: new Date().toISOString(),
+            read: false
+          }));
+
+          console.log('🔔 Created fundraising notification objects:', notifications.length);
+
+          // Save to Supabase database
+          const { error: notifError } = await supabase
+            .from('notifications')
+            .insert(notifications.map(n => ({
+              id: n.id,
+              user_id: n.user_id,
+              type: n.type,
+              title: n.title,
+              message: n.message,
+              href: n.href,
+              created_at: n.created_at,
+              read: n.read
+            })));
+
+          if (notifError) {
+            console.error('❌ Error creating fundraising notifications:', notifError);
+            console.error('❌ Notification error details:', JSON.stringify(notifError, null, 2));
+          } else {
+            console.log(`✅ Created ${notifications.length} fundraising notifications for new campaign`);
+          }
+        } else {
+          console.log('⚠️ No students found for fundraising campaign targets:', {
+            branches: data.targetBranches,
+            semesters: data.targetSemesters
+          });
+        }
+      } catch (notifError) {
+        console.error('❌ Exception in fundraising notification creation:', notifError);
+        console.error('❌ Exception details:', notifError.stack);
+      }
+
       const processedCampaign: FundraisingCampaign = {
         id: insertedData.id,
         title: data.title,
@@ -235,6 +364,18 @@ export function FundraisingForm({ onSubmitSuccess, initialData, facultyUser }: F
     }
   };
 
+  const saveDraft = async () => {
+    await supabase.from('drafts').upsert({
+      user_id: facultyUser.uid,
+      form_id: 'fundraising-campaign',
+      data: form.getValues(),
+      updated_at: new Date().toISOString()
+    });
+    
+    // Remove localStorage usage
+    localStorage.removeItem('draft-campaign');
+  };
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -248,9 +389,9 @@ export function FundraisingForm({ onSubmitSuccess, initialData, facultyUser }: F
             <FormItem><FormLabel>Contact Details</FormLabel><FormControl><Input placeholder="e.g., Prof. John Doe - 9876543210" {...field} disabled={isLoading} /></FormControl><FormMessage /></FormItem>
         )} />
         <FormField control={form.control} name="goalAmount" render={({ field }) => (
-          <FormItem><FormLabel>Goal Amount (₹)</FormLabel><FormControl><Input type="number" min="1" placeholder="e.g., 5000" {...field} onChange={(e) => {
+          <FormItem><FormLabel>Goal Amount (₹)</FormLabel><FormControl><Input type="number" min="1" placeholder="e.g., 5000" {...field} value={field.value || ''} onChange={(e) => {
             const value = parseInt(e.target.value);
-            field.onChange(isNaN(value) || value < 1 ? undefined : value);
+            field.onChange(isNaN(value) || value < 1 ? '' : value);
           }} disabled={isLoading} /></FormControl><FormDescription>Enter the target amount you want to raise for this campaign.</FormDescription><FormMessage /></FormItem>
         )} />
         <FormField control={form.control} name="startDate" render={({ field }) => (
@@ -341,6 +482,9 @@ export function FundraisingForm({ onSubmitSuccess, initialData, facultyUser }: F
         <Button type="submit" disabled={isLoading}>
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           {initialData ? 'Update Campaign' : 'Create Campaign'}
+        </Button>
+        <Button type="button" onClick={saveDraft}>
+          Save Draft
         </Button>
       </form>
     </Form>

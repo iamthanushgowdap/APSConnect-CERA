@@ -5,6 +5,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import { TimetableView } from '@/components/timetables/timetable-view';
+import ParticleBackground from "@/components/ui/particle-background";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCnCardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -13,6 +14,7 @@ import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Branch, Semester, TimeTable } from '@/types';
 import { semesters } from '@/types';
+import { getTimetable } from '@/lib/supabase-utils';
 
 const TIMETABLE_STORAGE_KEY_PREFIX = 'apsconnect_timetable_';
 
@@ -41,22 +43,18 @@ export default function FacultyTimetablePage() {
     }
   }, [user, authLoading, router, facultyBranches, viewBranch]);
 
-  const loadTimetableForView = useCallback(() => {
-    if (viewBranch && viewSemester && typeof window !== 'undefined') {
+  const loadTimetableForView = useCallback(async () => {
+    if (viewBranch && viewSemester) {
       setViewDataLoading(true);
-      const key = `${TIMETABLE_STORAGE_KEY_PREFIX}${viewBranch}_${viewSemester}`;
-      const storedData = localStorage.getItem(key);
-      if (storedData) {
-        try {
-          setCurrentViewTimetable(JSON.parse(storedData));
-        } catch (error) {
-          console.error("Error parsing timetable for view:", error);
-          setCurrentViewTimetable(null);
-        }
-      } else {
+      try {
+        const timetable = await getTimetable(viewBranch, viewSemester);
+        setCurrentViewTimetable(timetable);
+      } catch (error) {
+        console.error('Error loading timetable from database:', error);
         setCurrentViewTimetable(null);
+      } finally {
+        setViewDataLoading(false);
       }
-      setViewDataLoading(false);
     } else {
       setCurrentViewTimetable(null);
     }
@@ -114,8 +112,11 @@ export default function FacultyTimetablePage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex justify-between items-center mb-4 relative z-10">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center">
           <CalendarDays className="mr-3 h-7 w-7" />
           View Timetables

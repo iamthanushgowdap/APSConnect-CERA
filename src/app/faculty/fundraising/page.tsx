@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { FundraisingForm } from '@/components/fundraising/fundraising-form';
 import type { FundraisingCampaign, UserProfile, Branch } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCnCardDescription, CardFooter } from '@/components/ui/card';
+import ParticleBackground from "@/components/ui/particle-background";
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -170,8 +171,11 @@ export default function FacultyFundraisingPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4 relative z-10">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center">
           <HandCoins className="mr-3 h-7 w-7" /> Fundraising Management
         </h1>

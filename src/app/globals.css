@@ -1,4 +1,6 @@
 
+@import url('https://fonts.googleapis.com/css?family=Montserrat:wght@400;600;700');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -304,4 +306,585 @@
 .four-oh-four__code-message span:nth-of-type(10) {
   --scaleX: 50;
   --scaleY: -25;
+}
+
+/* Aurora Background Animation */
+@keyframes aurora {
+  0%, 100% {
+    transform: translateX(-50%) translateY(-50%) rotate(0deg) scale(1);
+  }
+  33% {
+    transform: translateX(-50%) translateY(-50%) rotate(120deg) scale(1.1);
+  }
+  66% {
+    transform: translateX(-50%) translateY(-50%) rotate(240deg) scale(0.9);
+  }
+}
+
+/* Animated Logout Button Styles */
+.logoutButton {
+  --figure-duration: 100ms;
+  --transform-figure: none;
+  --walking-duration: 100ms;
+  --transform-arm1: none;
+  --transform-wrist1: none;
+  --transform-arm2: none;
+  --transform-wrist2: none;
+  --transform-leg1: none;
+  --transform-calf1: none;
+  --transform-leg2: none;
+  --transform-calf2: none;
+  background: none;
+  border: 0;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  display: block;
+  font-family: "Inter", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  height: 40px;
+  outline: none;
+  padding: 0 0 0 20px;
+  perspective: 100px;
+  position: relative;
+  text-align: left;
+  width: 130px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.logoutButton:hover .door {
+  transform: rotateY(20deg);
+}
+
+.logoutButton:active::before {
+  transform: scale(0.96);
+}
+
+.logoutButton:active .door {
+  transform: rotateY(28deg);
+}
+
+.logoutButton.clicked::before {
+  transform: none;
+}
+
+.logoutButton.clicked .door {
+  transform: rotateY(35deg);
+}
+
+.logoutButton.door-slammed .door {
+  transform: none;
+  transition: transform 100ms ease-in 250ms;
+}
+
+.logoutButton.falling {
+  animation: shake 200ms linear;
+}
+
+.logoutButton.falling .bang {
+  animation: flash 300ms linear;
+}
+
+.logoutButton.falling .figure {
+  animation: spin 1000ms infinite linear;
+  bottom: -1080px;
+  opacity: 0;
+  right: 1px;
+  transition: transform calc(var(--figure-duration) * 1ms) linear, bottom calc(var(--figure-duration) * 1ms) cubic-bezier(0.7, 0.1, 1, 1) 100ms, opacity calc(var(--figure-duration) * 0.25ms) linear calc(var(--figure-duration) * 0.75ms);
+  z-index: 1;
+}
+
+.logoutButton--light::before {
+  background-color: hsl(var(--background));
+}
+
+.logoutButton--light .button-text {
+  color: hsl(var(--foreground));
+}
+
+.logoutButton--light .door,
+.logoutButton--light .doorway {
+  fill: hsl(var(--foreground));
+}
+
+.button-text {
+  color: hsl(var(--foreground));
+  font-weight: 500;
+  position: relative;
+  z-index: 10;
+}
+
+.logoutButton svg {
+  display: block;
+  position: absolute;
+}
+
+.logoutButton .figure {
+  bottom: 5px;
+  fill: hsl(var(--primary));
+  right: 18px;
+  transform: var(--transform-figure);
+  transition: transform calc(var(--figure-duration) * 1ms) cubic-bezier(0.2, 0.1, 0.8, 0.9);
+  width: 30px;
+  z-index: 4;
+}
+
+.logoutButton .door,
+.logoutButton .doorway {
+  bottom: 4px;
+  fill: hsl(var(--foreground));
+  right: 12px;
+  width: 32px;
+}
+
+.logoutButton .door {
+  transform: rotateY(20deg);
+  transform-origin: 100% 50%;
+  transform-style: preserve-3d;
+  transition: transform 200ms ease;
+  z-index: 5;
+}
+
+.logoutButton .door path {
+  fill: hsl(var(--primary));
+  stroke: hsl(var(--primary));
+  stroke-width: 4;
+}
+
+.logoutButton .doorway {
+  z-index: 3;
+}
+
+.logoutButton .bang {
+  opacity: 0;
+}
+
+.logoutButton .arm1,
+.logoutButton .wrist1,
+.logoutButton .arm2,
+.logoutButton .wrist2,
+.logoutButton .leg1,
+.logoutButton .calf1,
+.logoutButton .leg2,
+.logoutButton .calf2 {
+  transition: transform calc(var(--walking-duration) * 1ms) ease-in-out;
+}
+
+.logoutButton .arm1 {
+  transform: var(--transform-arm1);
+  transform-origin: 52% 45%;
+}
+
+.logoutButton .wrist1 {
+  transform: var(--transform-wrist1);
+  transform-origin: 59% 55%;
+}
+
+.logoutButton .arm2 {
+  transform: var(--transform-arm2);
+  transform-origin: 47% 43%;
+}
+
+.logoutButton .wrist2 {
+  transform: var(--transform-wrist2);
+  transform-origin: 35% 47%;
+}
+
+.logoutButton .leg1 {
+  transform: var(--transform-leg1);
+  transform-origin: 47% 64.5%;
+}
+
+.logoutButton .calf1 {
+  transform: var(--transform-calf1);
+  transform-origin: 55.5% 71.5%;
+}
+
+.logoutButton .leg2 {
+  transform: var(--transform-leg2);
+  transform-origin: 43% 63%;
+}
+
+.logoutButton .calf2 {
+  transform: var(--transform-calf2);
+  transform-origin: 41.5% 73%;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg) scale(0.94);
+  }
+  to {
+    transform: rotate(359deg) scale(0.94);
+  }
+}
+
+@keyframes shake {
+  0% {
+    transform: rotate(-1deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+  100% {
+    transform: rotate(-1deg);
+  }
+}
+
+@keyframes flash {
+  0% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Gooey Animation Styles */
+.gooey{
+  background-image: linear-gradient(120deg, #34e0f0 0%, #b400ff 100%);
+  border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%;
+  width: 150px; height: 144px;
+  animation: morph 3s linear infinite;
+  transform-style: preserve-3d;
+  outline: 1px solid transparent;
+  will-change: border-radius;
+}
+.gooey:before,
+.gooey:after{
+  content: '';
+  width: 100%;
+  height: 100%;
+  display: block;
+  position: absolute;
+  left: 0; top: 0;
+  border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%;
+  box-shadow: 5px 5px 89px rgba(0, 102, 255, 0.21);
+  will-change: border-radius, transform, opacity;
+  animation-delay: 200ms;
+  background-image: linear-gradient(120deg, rgba(0,67,255,.55) 0%, rgba(0,103,255,.89) 100%);
+}
+
+.gooey:before{
+  animation: morph 3s linear infinite;
+  opacity: .21;
+  animation-duration: 1.5s;
+}
+
+.gooey:after{
+  animation: morph 3s linear infinite;
+  animation-delay: 400ms;
+  opacity: .89;
+  content: "APSConnect";
+  line-height: 120px;
+  text-indent: -21px;
+  font-size: 16px;
+  font-weight: bold;
+  color: white;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes morph{
+  0%,100%{
+  border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%;
+    transform: translate3d(0,0,0) rotateZ(0.01deg);
+  }
+  34%{
+      border-radius: 70% 30% 46% 54% / 30% 29% 71% 70%;
+    transform:  translate3d(0,5px,0) rotateZ(0.01deg);
+  }
+  50%{
+    opacity: .89;
+    transform: translate3d(0,0,0) rotateZ(0.01deg);
+  }
+  67%{
+    border-radius: 100% 60% 60% 100% / 100% 100% 60% 60% ;
+    transform: translate3d(0,-3px,0) rotateZ(0.01deg);
+  }
+}
+
+@keyframes fadeIn{
+  100%{
+    transform: scale(1.03);
+    opacity: 0;
+  }
+}
+
+/* Chat Interface Styles */
+.chat {
+  background: var(--chat-background, rgba(10, 14, 14, 0.95));
+  max-width: 600px;
+  margin: 25px auto;
+  box-sizing: border-box;
+  padding: 1em;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.chat::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: url(https://images.unsplash.com/photo-1495808985667-ba4ce2ef31b3?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=1050&q=80) fixed;
+  z-index: -1;
+  opacity: 0.1;
+}
+
+.chat__conversation-board {
+  padding: 1em 0 2em;
+  height: calc(100vh - 55px - 2em - 25px * 2 - .5em - 3em);
+  overflow: auto;
+}
+
+/* Card Mode Overrides - Remove background and adjust sizing */
+.chat__conversation-board {
+  height: calc(100% - 55px);
+}
+
+/* Remove chat wrapper styling when in card mode */
+:not(.chat) .chat__conversation-board {
+  padding: 1em 1em 2em 1em;
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* Clean Message Styles */
+.clean-message-container {
+  margin-bottom: 1rem;
+}
+
+.clean-message-container:last-child {
+  margin-bottom: 0;
+}
+
+.chat__conversation-board__message-container {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  margin: 0 0 2em 0;
+}
+
+.chat__conversation-board__message-container:hover .chat__conversation-board__message__options {
+  display: flex;
+  align-items: center;
+}
+
+.chat__conversation-board__message-container .option-item:not(:last-child) {
+  margin: 0 .5em 0 0;
+}
+
+.chat__conversation-board__message-container.reversed {
+  flex-direction: row-reverse;
+}
+
+.chat__conversation-board__message-container.reversed .chat__conversation-board__message__person {
+  margin: 0 0 0 1.2em;
+}
+
+.chat__conversation-board__message-container.reversed .chat__conversation-board__message__options {
+  align-self: center;
+  position: absolute;
+  left: 0;
+  display: none;
+}
+
+.chat__conversation-board__message__person {
+  text-align: center;
+  margin: 0 1.2em 0 0;
+}
+
+.chat__conversation-board__message__person__avatar {
+  height: 35px;
+  width: 35px;
+  overflow: hidden;
+  border-radius: 50%;
+  user-select: none;
+  position: relative;
+}
+
+.chat__conversation-board__message__person__nickname {
+  font-size: 9px;
+  color: #484848;
+  user-select: none;
+  display: none;
+}
+
+.chat__conversation-board__message__context {
+  max-width: 55%;
+  align-self: flex-end;
+}
+
+.chat__conversation-board__message__options {
+  align-self: center;
+  position: absolute;
+  right: 0;
+  display: none;
+}
+
+.chat__conversation-board__message__option-button {
+  border: 0;
+  background: 0;
+  padding: 0;
+  margin: 0;
+  height: 16px;
+  width: 16px;
+  outline: none;
+  cursor: pointer;
+}
+
+.emoji-button svg {
+  stroke: var(--chat-options-svg, #a3a3a3);
+  fill: transparent;
+  width: 100%;
+}
+
+.more-button svg {
+  stroke: var(--chat-options-svg, #a3a3a3);
+  fill: transparent;
+  width: 100%;
+}
+
+.chat__conversation-board__message__bubble {
+  width: fit-content;
+  display: inline-table;
+  word-wrap: break-word;
+  background: hsl(var(--muted));
+  font-size: 13px;
+  color: hsl(var(--foreground));
+  padding: .5em .8em;
+  line-height: 1.5;
+  border-radius: 6px;
+  font-family: 'Lato', sans-serif;
+  margin: 0 0 .3em;
+  border: 1px solid hsl(var(--border));
+}
+
+.chat__conversation-board__message__bubble:active {
+  background: var(--chat-bubble-active-background, #1a1d1f);
+}
+
+.chat__conversation-panel {
+  background: hsl(var(--muted));
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid hsl(var(--border));
+  display: flex;
+  flex-direction: column;
+}
+
+.chat__conversation-panel__container {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  height: 55px;
+  padding: 0 1em;
+  background: hsl(var(--muted));
+}
+
+.chat__conversation-panel__container .panel-item:not(:last-child) {
+  margin: 0 1em 0 0;
+}
+
+.chat__conversation-panel__button {
+  background: grey;
+  height: 20px;
+  width: 30px;
+  border: 0;
+  padding: 0;
+  outline: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.add-file-button {
+  height: 23px !important;
+  min-width: 23px !important;
+  width: 23px !important;
+  background: hsl(var(--muted-foreground) / 0.2) !important;
+  border-radius: 50% !important;
+}
+
+.emoji-button {
+  min-width: 23px !important;
+  width: 23px !important;
+  height: 23px !important;
+  background: transparent !important;
+  border-radius: 50% !important;
+}
+
+.send-message-button {
+  background: hsl(var(--primary)) !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  border-radius: 50% !important;
+  transition: .3s ease !important;
+}
+
+.send-message-button:active {
+  transform: scale(.97);
+}
+
+.chat__conversation-panel__input {
+  width: 100%;
+  height: 100%;
+  outline: none;
+  position: relative;
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  background: transparent;
+  border: 0;
+  font-family: 'Lato', sans-serif;
+  resize: none;
+  min-height: 20px;
+}
+
+/* Mobile Responsive */
+@media only screen and (max-width: 600px) {
+  .chat {
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .chat__conversation-board {
+    height: calc(100vh - 55px - 2em - .5em - 3em);
+  }
+
+  .chat__conversation-board__message__options {
+    display: none !important;
+  }
+}
+
+/* GlowingEffect styles */
+.glow {
+  position: relative;
+}
+
+.glow::after {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--glowingeffect-border-width, 4px));
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--start, 0deg),
+    transparent 0deg,
+    #dd7bbb var(--spread, 40deg),
+    #d79f1e calc(var(--spread, 40deg) * 1.25),
+    #5a922c calc(var(--spread, 40deg) * 1.5),
+    #4c7894 calc(var(--spread, 40deg) * 1.75),
+    transparent calc(var(--spread, 40deg) * 2)
+  );
+  opacity: 1; /* Temporarily always visible for debugging */
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 1;
 }

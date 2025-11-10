@@ -18,13 +18,44 @@ export const EllipsisSpinner: React.FC<SVGSpinnerProps> = ({ className, ...props
   </svg>
 );
 
-export const SimpleRotatingSpinner: React.FC<SVGSpinnerProps> = ({ className, ...props }) => (
-  <svg className={cn("h-6 w-6 animate-spin", className)} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid" {...props}>
-    <circle cx="50" cy="50" fill="none" stroke="currentColor" strokeWidth="10" r="35" strokeDasharray="164.93361431346415 56.97787143782138">
-      {/* Removed animateTransform as Tailwind animate-spin handles rotation */}
-    </circle>
-  </svg>
-);
+export const SimpleRotatingSpinner: React.FC<{ className?: string }> = ({ className }) => {
+  return (
+    <div className={`loader ${className || ''}`}>
+      <style jsx>{`
+        .loader {
+          display: inline-flex;
+          gap: 10px;
+          align-items: center;
+        }
+        .loader:before,
+        .loader:after {
+          content: "";
+          height: 20px;
+          aspect-ratio: 1;
+          border-radius: 50%;
+          background:
+            radial-gradient(farthest-side, currentColor 95%, transparent) 50%/8px 8px no-repeat
+            currentColor;
+          aspect-ratio: 1;
+          animation: l10 1.5s infinite alternate;
+        }
+        .loader:after {
+          --s: -1;
+        }
+        @keyframes l10 {
+          0%, 20% {
+            transform: scaleX(var(--s, 1)) rotate(0deg);
+            clip-path: inset(0);
+          }
+          60%, 100% {
+            transform: scaleX(var(--s, 1)) rotate(30deg);
+            clip-path: inset(40% 0 0);
+          }
+        }
+      `}</style>
+    </div>
+  );
+};
 
 
 export const ReloaderSpinner: React.FC<SVGSpinnerProps> = ({ className, ...props }) => (
@@ -66,39 +97,41 @@ export const SpinnerWithDot: React.FC<SVGSpinnerProps> = ({ className, ...props 
 );
 
 
-export const SquidGameLoader: React.FC<SVGSpinnerProps> = ({ className, ...props }) => {
-    return (
-      <div 
-        className={cn("relative w-11 h-11", className)}
-        style={{
-          // @ts-ignore
-          '--path': '#2F3545',
-          '--dot': '#5928ee',
-          '--duration': '3s',
-        }}
-        {...props}
-      >
-        <div 
-          className="w-[6px] h-[6px] rounded-full absolute block bg-[var(--dot)] top-[37px] left-[19px] animate-dotRect"
-          style={{ transform: 'translate(-18px, -18px)' }}
-        ></div>
-        <svg viewBox="0 0 80 80" className="block w-full h-full">
-          <circle 
-            id="test" 
-            cx="40" 
-            cy="40" 
-            r="32"
-            className="fill-none stroke-[var(--path)]"
-            strokeWidth="10"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            style={{
-              strokeDasharray: '150 50 150 50',
-              strokeDashoffset: 75,
-              animation: 'pathCircle var(--duration) cubic-bezier(0.785, 0.135, 0.15, 0.86) infinite'
-            }}
-          ></circle>
-        </svg>
-      </div>
-    );
+export const SquidGameLoader: React.FC<{ className?: string }> = ({ className }) => {
+  return (
+    <div className={`loader ${className || ''}`}>
+      <style jsx>{`
+        .loader {
+          display: inline-flex;
+          gap: 10px;
+          align-items: center;
+        }
+        .loader:before,
+        .loader:after {
+          content: "";
+          height: 20px;
+          aspect-ratio: 1;
+          border-radius: 50%;
+          background:
+            radial-gradient(farthest-side, currentColor 95%, transparent) 50%/8px 8px no-repeat
+            currentColor;
+          aspect-ratio: 1;
+          animation: l10 1.5s infinite alternate;
+        }
+        .loader:after {
+          --s: -1;
+        }
+        @keyframes l10 {
+          0%, 20% {
+            transform: scaleX(var(--s, 1)) rotate(0deg);
+            clip-path: inset(0);
+          }
+          60%, 100% {
+            transform: scaleX(var(--s, 1)) rotate(30deg);
+            clip-path: inset(40% 0 0);
+          }
+        }
+      `}</style>
+    </div>
+  );
 };

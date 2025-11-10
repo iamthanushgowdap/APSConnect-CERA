@@ -7,8 +7,8 @@ import { daysOfWeek, timeSlotDescriptors, saturdayLastSlotIndex } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CalendarDays, AlertTriangle, CalendarPlus } from 'lucide-react';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { generateTimetableICS, downloadICSFile } from '@/lib/calendar-utils';
 import { useToast } from '@/hooks/use-toast';
 
@@ -139,81 +139,129 @@ export function TimetableView({ timetable, isLoading, studentBranch, studentSeme
             Last Updated: {new Date(timetable.lastUpdatedAt).toLocaleString()} by User ID: {timetable.lastUpdatedBy}
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 overflow-x-auto">
-        <Table className="min-w-full border-collapse border border-border">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="border border-border p-2 font-semibold bg-muted/50 sticky left-0 z-10 w-[100px] min-w-[100px]">Day</TableHead>
-              {timeSlotDescriptors.map((descriptor, periodIndex) => (
-                <TableHead key={periodIndex} className="border border-border p-2 font-semibold bg-muted/50 text-center min-w-[150px]">
-                    {descriptor.label} <br/> <span className="text-xs font-normal">({descriptor.time})</span>
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {orderedSchedule.map(daySchedule => (
-              <TableRow key={daySchedule.day}>
-                <TableCell className="border border-border p-2 font-medium bg-muted/30 text-muted-foreground text-xs sm:text-sm sticky left-0 z-10 w-[100px] min-w-[100px]">
-                  {daySchedule.day}
-                </TableCell>
-                {daySchedule.entries.map((entry, periodIndex) => { 
-                  const entrySubject = entry.subject;
-                  const isSaturday = daySchedule.day === "Saturday";
-                  const isAfterSaturdayCutoff = isSaturday && periodIndex > saturdayLastSlotIndex;
-                  const currentDescriptor = timeSlotDescriptors[periodIndex]; 
-                  const hasEnhancedData = entry.faculty_name || entry.room_number || entry.subject_code;
-                  
-                  return (
-                    <TableCell key={`${daySchedule.day}-${periodIndex}`} className="border border-border p-2 text-center text-xs min-w-[200px] align-top">
-                      {isAfterSaturdayCutoff ? "-" : (
-                        currentDescriptor.isBreak ? (
-                          <div className="font-medium text-muted-foreground">{currentDescriptor.label}</div>
-                        ) : (
-                          <div className="space-y-1">
-                            <div className="font-medium">
-                              {entrySubject || "-"}
-                              {entry.subject_code && (
-                                <span className="text-muted-foreground ml-1">({entry.subject_code})</span>
-                              )}
+      <CardContent className="space-y-6">
+        {orderedSchedule.map(daySchedule => (
+          <div key={daySchedule.day} className="space-y-3">
+            {/* Day Header */}
+            <div className="flex items-center gap-3 pb-2 border-b border-border">
+              <div className="text-lg font-semibold text-primary min-w-[100px]">
+                {daySchedule.day}
+              </div>
+              <div className="flex-1 h-px bg-border"></div>
+            </div>
+
+            {/* Period Cards */}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {daySchedule.entries.map((entry, periodIndex) => {
+                const entrySubject = entry.subject;
+                const isSaturday = daySchedule.day === "Saturday";
+                const isAfterSaturdayCutoff = isSaturday && periodIndex > saturdayLastSlotIndex;
+                const currentDescriptor = timeSlotDescriptors[periodIndex];
+                const hasEnhancedData = entry.faculty_name || entry.room_number || entry.subject_code || entry.batch;
+
+                if (isAfterSaturdayCutoff) return null;
+
+                return (
+                  <Card key={`${daySchedule.day}-${periodIndex}`}
+                        className={`transition-all duration-200 hover:shadow-md ${
+                          currentDescriptor.isBreak
+                            ? 'bg-muted/30 border-dashed'
+                            : entry.type === 'lab'
+                              ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800'
+                              : 'bg-card border-border'
+                        }`}>
+                    <CardContent className="p-4">
+                      {/* Time and Period Info */}
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <div className="font-semibold text-sm text-primary">
+                            {currentDescriptor.label}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {currentDescriptor.time}
+                          </div>
+                        </div>
+                        {entry.type === 'lab' && (
+                          <div className="text-orange-600 dark:text-orange-400">
+                            🔬 LAB
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Subject Info */}
+                      {currentDescriptor.isBreak ? (
+                        <div className="text-center py-4 space-y-2">
+                          {currentDescriptor.label === "Short Break" ? (
+                            <div className="space-y-2">
+                              <div className="text-2xl">☕🥪</div>
+                              <div className="font-medium text-muted-foreground text-sm">
+                                Tea Break
+                              </div>
                             </div>
-                            {hasEnhancedData && (
-                              <div className="text-xs space-y-0.5">
-                                {entry.faculty_name && (
-                                  <div className="flex items-center justify-center gap-1 text-blue-600">
-                                    <span>👨‍🏫</span>
-                                    <span>{entry.faculty_name}</span>
-                                  </div>
-                                )}
-                                {entry.room_number && (
-                                  <div className="flex items-center justify-center gap-1 text-green-600">
-                                    <span>🏫</span>
-                                    <span>Room: {entry.room_number}</span>
-                                  </div>
-                                )}
-                                {entry.batch && (
-                                  <div className="flex items-center justify-center gap-1 text-purple-600">
-                                    <span>👥</span>
-                                    <span>Batch: {entry.batch}</span>
-                                  </div>
-                                )}
-                                {entry.type === 'lab' && (
-                                  <div className="text-orange-600 font-medium">
-                                    🔬 LAB SESSION
-                                  </div>
-                                )}
+                          ) : currentDescriptor.label === "Lunch Break" ? (
+                            <div className="space-y-2">
+                              <div className="text-2xl">🍱🥘</div>
+                              <div className="font-medium text-muted-foreground text-sm">
+                                Lunch Time
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="font-medium text-muted-foreground">
+                              {currentDescriptor.label}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div>
+                            <div className="font-medium text-sm leading-tight">
+                              {entrySubject || "No Class"}
+                            </div>
+                            {entry.subject_code && (
+                              <div className="text-xs text-muted-foreground mt-1">
+                                {entry.subject_code}
                               </div>
                             )}
                           </div>
-                        )
+
+                          {/* Enhanced Data */}
+                          {hasEnhancedData && (
+                            <div className="space-y-1 pt-2 border-t border-border/50">
+                              {entry.faculty_name && (
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-blue-600">👨‍🏫</span>
+                                  <span className="text-blue-700 dark:text-blue-300 truncate">
+                                    {entry.faculty_name}
+                                  </span>
+                                </div>
+                              )}
+                              {entry.room_number && (
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-green-600">🏫</span>
+                                  <span className="text-green-700 dark:text-green-300">
+                                    Room {entry.room_number}
+                                  </span>
+                                </div>
+                              )}
+                              {entry.batch && (
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-purple-600">👥</span>
+                                  <span className="text-purple-700 dark:text-purple-300">
+                                    {entry.batch}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       )}
-                    </TableCell>
-                  );
-                })}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );

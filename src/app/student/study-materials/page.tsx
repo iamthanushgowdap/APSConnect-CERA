@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import type { StudyMaterial, Branch, Semester } from '@/types';
-import { STUDY_MATERIAL_STORAGE_KEY } from '@/types';
+import { supabase } from '@/lib/supabase';
 import { StudyMaterialItem } from '@/components/study-materials/study-material-item';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCnCardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,8 @@ import Link from 'next/link';
 import { ShieldCheck, BookOpen, Info, AlertTriangle, Search, ArrowLeft } from 'lucide-react';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { Input } from '@/components/ui/input';
-
+import ParticleBackground from "@/components/ui/particle-background";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export default function StudentStudyMaterialsPage() {
   const { user, isLoading: authLoading } = useAuth();
@@ -29,41 +30,61 @@ export default function StudentStudyMaterialsPage() {
   }>({ isProfileComplete: false });
 
 
-  const fetchAndFilterMaterials = useCallback(() => {
+  const fetchAndFilterMaterials = useCallback(async () => {
     if (!user || !studentDetails.branch || !studentDetails.semester) {
         setFilteredMaterials([]);
         return;
     }
-    if (typeof window !== 'undefined') {
-      const storedMaterials = localStorage.getItem(STUDY_MATERIAL_STORAGE_KEY);
-      let materials: StudyMaterial[] = storedMaterials ? JSON.parse(storedMaterials) : [];
-      
-      materials = materials.filter(m => 
-        m.branch === studentDetails.branch && m.semester === studentDetails.semester
-      );
-      setAllMaterials(materials.sort((a,b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()));
+
+    try {
+      const { data: materials, error } = await supabase
+        .from('study_materials')
+        .select('*')
+        .eq('branch', studentDetails.branch)
+        .eq('semester', studentDetails.semester)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching materials:', error);
+        setAllMaterials([]);
+        setFilteredMaterials([]);
+      } else {
+        setAllMaterials(materials || []);
+      }
+    } catch (error) {
+      console.error('Error fetching materials:', error);
+      setAllMaterials([]);
+      setFilteredMaterials([]);
     }
   }, [user, studentDetails.branch, studentDetails.semester]);
 
   useEffect(() => {
-    if (!authLoading && user) {
-      const isProfileCompleteForMaterials = !!(user.branch && user.semester);
-      setStudentDetails({
-        branch: user.branch,
-        semester: user.semester,
-        isProfileComplete: isProfileCompleteForMaterials
-      });
-      
-      if (user.role !== 'student' && user.role !== 'pending') {
-        router.push('/dashboard');
-      } else if (isProfileCompleteForMaterials) {
-        fetchAndFilterMaterials();
+    const loadData = async () => {
+      if (!authLoading) {
+        if (user) {
+          const isProfileCompleteForMaterials = !!(user.branch && user.semester);
+          setStudentDetails({
+            branch: user.branch,
+            semester: user.semester,
+            isProfileComplete: isProfileCompleteForMaterials
+          });
+
+          if (user.role !== 'student' && user.role !== 'pending') {
+            router.push('/dashboard');
+          } else if (isProfileCompleteForMaterials) {
+            await fetchAndFilterMaterials();
+            setPageLoading(false);
+          } else {
+            setPageLoading(false);
+          }
+        } else {
+          router.push('/login');
+          setPageLoading(false);
+        }
       }
-      setPageLoading(false);
-    } else if (!authLoading && !user) {
-      router.push('/login');
-      setPageLoading(false);
-    }
+    };
+
+    loadData();
   }, [user, authLoading, router, fetchAndFilterMaterials]);
 
   useEffect(() => {
@@ -73,7 +94,7 @@ export default function StudentStudyMaterialsPage() {
       currentMaterials = currentMaterials.filter(m => 
         m.title.toLowerCase().includes(termLower) ||
         m.description?.toLowerCase().includes(termLower) ||
-        m.uploadedByDisplayName.toLowerCase().includes(termLower) ||
+        m.uploaded_by_display_name.toLowerCase().includes(termLower) ||
         m.attachments.some(att => att.name.toLowerCase().includes(termLower))
       );
     }
@@ -137,8 +158,11 @@ export default function StudentStudyMaterialsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4 relative z-10">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center">
             <BookOpen className="mr-3 h-7 w-7" /> Study Materials
         </h1>
@@ -150,7 +174,7 @@ export default function StudentStudyMaterialsPage() {
         Access materials for your branch: <strong>{studentDetails.branch}</strong>, semester: <strong>{studentDetails.semester}</strong>.
       </p>
       
-      <Card className="shadow-lg mb-8">
+      <Card className="shadow-lg mb-8 relative z-10">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Search className="h-5 w-5"/> Search Materials</CardTitle>
           <ShadCnCardDescription>Filter materials by title, description, or uploader.</ShadCnCardDescription>
@@ -167,24 +191,25 @@ export default function StudentStudyMaterialsPage() {
         </CardContent>
       </Card>
 
-
-      {filteredMaterials.length === 0 ? (
-        <Card className="shadow-lg">
-          <CardContent className="py-10 text-center">
-            <BookOpen className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
-            <p className="text-lg text-muted-foreground">
-              {searchTerm ? "No materials match your search." : "No study materials uploaded for your branch and semester yet."}
-            </p>
-            <p className="text-sm text-muted-foreground mt-1">Please check back later or contact your faculty.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredMaterials.map(material => (
-            <StudyMaterialItem key={material.id} material={material} />
-          ))}
-        </div>
-      )}
+      <ScrollArea>
+        {filteredMaterials.length === 0 ? (
+          <Card className="shadow-lg">
+            <CardContent className="py-10 text-center">
+              <BookOpen className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
+              <p className="text-lg text-muted-foreground">
+                {searchTerm ? "No materials match your search." : "No study materials uploaded for your branch and semester yet."}
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">Please check back later or contact your faculty.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredMaterials.map(material => (
+              <StudyMaterialItem key={material.id} material={material} />
+            ))}
+          </div>
+        )}
+      </ScrollArea>
     </div>
   );
 }

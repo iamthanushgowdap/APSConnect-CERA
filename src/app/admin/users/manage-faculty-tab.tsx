@@ -20,6 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label'; 
 import { Checkbox } from '@/components/ui/checkbox';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -35,6 +36,7 @@ import {
   FormDescription as ShadCnFormDescription,
 } from "@/components/ui/form";
 import { getUserProfiles, updateUserProfile, createUserProfileForce, deleteUserProfile, createFaculty, getBranches } from '@/lib/supabase-utils';
+import { supabase } from '@/lib/supabase';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 
 const BRANCH_STORAGE_KEY = 'apsconnect_managed_branches';
@@ -108,11 +110,21 @@ export default function ManageFacultyTab() {
       const allUsers = await getUserProfiles({ role: 'faculty' });
       setFacultyMembers(allUsers.sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "")));
 
-      // Load subjects from localStorage (subjects are still stored locally)
-      const storedSubjects = localStorage.getItem(SUBJECT_STORAGE_KEY);
-      setAllSubjects(storedSubjects ? JSON.parse(storedSubjects) : []);
+      // Load subjects from database instead of localStorage
+      const { data: subjectsData, error: subjectsError } = await supabase
+        .from('subjects')
+        .select('*')
+        .order('name');
+
+      if (subjectsError) {
+        console.error('Error fetching subjects:', subjectsError);
+        setAllSubjects([]);
+      } else {
+        setAllSubjects(subjectsData || []);
+        console.log('Loaded subjects from database:', subjectsData?.length || 0);
+      }
     } catch (error) {
-      console.error('Error fetching faculty:', error);
+      console.error('Error fetching faculty and subjects:', error);
       setFacultyMembers([]);
       setAllSubjects([]);
     }
@@ -267,7 +279,7 @@ export default function ManageFacultyTab() {
   };
 
   const getSubjectsForFaculty = (facultyUid: string): Subject[] => {
-    return allSubjects.filter(subject => subject.assignedFacultyUids.includes(facultyUid));
+    return allSubjects.filter(subject => subject.assignedFacultyUids?.includes(facultyUid) || false);
   };
 
 
@@ -472,7 +484,7 @@ export default function ManageFacultyTab() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{editingFaculty ? "New Password (leave blank to keep current)" : "Password"}</FormLabel>
-                    <FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl>
+                    <FormControl><PasswordInput placeholder="••••••••" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -483,7 +495,7 @@ export default function ManageFacultyTab() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{editingFaculty ? "Confirm New Password" : "Confirm Password"}</FormLabel>
-                    <FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl>
+                    <FormControl><PasswordInput placeholder="••••••••" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

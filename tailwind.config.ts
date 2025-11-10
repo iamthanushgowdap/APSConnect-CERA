@@ -123,6 +123,7 @@ export default {
             'line': 'download-line 3s linear forwards 195ms',
             'svg': 'download-svg 3s linear forwards 195ms',
             'background': 'download-background 3s linear forwards 195ms',
+            'aurora': 'aurora 12s ease-in-out infinite',
   		}
   	}
   },

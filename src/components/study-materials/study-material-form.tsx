@@ -12,6 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { useToast } from '@/hooks/use-toast';
 import type { Branch, Semester, StudyMaterial, StudyMaterialAttachment } from '@/types';
 import { defaultBranches, semesters } from '@/types';
+import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/auth-provider';
 import { Loader2, UploadCloud, Paperclip, Trash2 } from 'lucide-react';
 
@@ -28,11 +29,11 @@ const ALLOWED_MATERIAL_TYPES = [
 const BRANCH_STORAGE_KEY = 'apsconnect_managed_branches';
 
 const studyMaterialFormSchema = z.object({
-  branch: z.string({ required_error: "Branch is required." }),
-  semester: z.custom<Semester>(val => semesters.includes(val as Semester), { required_error: "Semester is required." }),
+  branch: z.string().min(1, "Branch is required."),
+  semester: z.custom<Semester>(val => semesters.includes(val as Semester), "Semester is required."),
   title: z.string().min(3, "Title must be at least 3 characters.").max(100, "Title too long."),
   description: z.string().max(500, "Description too long.").optional(),
-  attachments: z.custom<FileList>((val) => val instanceof FileList && val.length > 0 , "At least one file is required.")
+  attachments: z.custom<FileList | null>((val) => val === null || (val instanceof FileList && val.length > 0), "At least one file is required.")
     .refine(files => {
         if (!files || files.length === 0) return false; // Should be caught by custom message above
         return Array.from(files).every(file => file.size <= MAX_FILE_SIZE_PER_MATERIAL);
@@ -83,9 +84,19 @@ export function StudyMaterialForm({
         form.setValue("semester", initialData.semester);
     }
     if (initialData?.attachments && initialData.attachments.length > 0 && selectedFilesDisplay.length === 0) {
-      // For initial data, we can't recreate File objects perfectly, so just show names for editing UI.
-      // The actual files would need to be re-selected by user if they want to change them.
+      // For initial data, show existing attachments but note they may not be re-downloadable
       setSelectedFilesDisplay(initialData.attachments.map(att => new File([], att.name, {type: att.type})));
+      
+      // Show warning if existing attachments don't have base64 content
+      const missingContent = initialData.attachments.filter(att => !att.base64Content);
+      if (missingContent.length > 0) {
+        toast({ 
+          title: "File Content Warning", 
+          description: "Some existing files may not be downloadable. Re-upload to fix.", 
+          variant: "destructive",
+          duration: 5000 
+        });
+      }
     }
   }, [initialData, form, selectedFilesDisplay.length, availableBranches]);
 
@@ -96,14 +107,14 @@ export function StudyMaterialForm({
       const newFilesArray = Array.from(files);
        if (newFilesArray.some(file => file.size > MAX_FILE_SIZE_PER_MATERIAL)) {
         toast({ title: "File Too Large", description: `One or more files exceed the ${MAX_FILE_SIZE_PER_MATERIAL / (1024*1024)}MB limit.`, variant: "destructive", duration: 3000 });
-        form.setValue('attachments', undefined);
+        form.setValue('attachments', null);
         event.target.value = ""; 
         setSelectedFilesDisplay([]);
         return;
       }
        if (newFilesArray.some(file => !ALLOWED_MATERIAL_TYPES.includes(file.type))) {
         toast({ title: "Invalid File Type", description: `One or more files have an unsupported type.`, variant: "destructive", duration: 3000 });
-        form.setValue('attachments', undefined);
+        form.setValue('attachments', null);
         event.target.value = "";
         setSelectedFilesDisplay([]);
         return;
@@ -112,7 +123,7 @@ export function StudyMaterialForm({
       form.setValue('attachments', files, { shouldValidate: true });
     } else {
       setSelectedFilesDisplay([]);
-      form.setValue('attachments', undefined, { shouldValidate: true });
+      form.setValue('attachments', null, { shouldValidate: true });
     }
   };
   
@@ -125,7 +136,7 @@ export function StudyMaterialForm({
     
     if (currentInput) currentInput.files = currentDt.files.length > 0 ? currentDt.files : null;
     setSelectedFilesDisplay(newSelectedFiles);
-    form.setValue('attachments', currentDt.files.length > 0 ? currentDt.files : undefined, { shouldValidate: true });
+    form.setValue('attachments', currentDt.files && currentDt.files.length > 0 ? currentDt.files : null, { shouldValidate: true });
   };
 
 
@@ -136,53 +147,89 @@ export function StudyMaterialForm({
     }
     setIsLoading(true);
 
-    const uploadedAttachments: StudyMaterialAttachment[] = [];
-    if (data.attachments) {
-      for (const file of Array.from(data.attachments)) {
-        // Mock file handling: In a real app, upload to a server and get URL
-        // For now, we'll use a mock ID.
-        uploadedAttachments.push({
-          name: file.name,
-          type: file.type,
-          size: file.size,
-          mockFileId: crypto.randomUUID(), // Simulate a unique ID for the stored file
-        });
+    try {
+      const uploadedAttachments: StudyMaterialAttachment[] = [];
+      if (data.attachments) {
+        for (const file of Array.from(data.attachments)) {
+          // Read file as base64 data URL
+          const base64Content = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+
+          uploadedAttachments.push({
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            mockFileId: crypto.randomUUID(),
+            base64Content: base64Content, // Store actual file content
+          });
+        }
       }
-    }
-    
-    const newMaterial: StudyMaterial = {
-      id: initialData?.id || crypto.randomUUID(),
-      branch: data.branch,
-      semester: data.semester,
-      title: data.title,
-      description: data.description,
-      attachments: uploadedAttachments,
-      uploadedByUid: user.uid,
-      uploadedByDisplayName: user.displayName || user.email || 'Unknown User',
-      uploadedAt: initialData?.uploadedAt || new Date().toISOString(), 
-    };
-    
-    if (initialData?.id) { // If editing, preserve original upload date
-        newMaterial.uploadedAt = initialData.uploadedAt;
-    }
 
+      const materialData = {
+        title: data.title,
+        description: data.description || null,
+        branch: data.branch,
+        semester: data.semester,
+        subject: null, // Can be added later if needed
+        attachments: uploadedAttachments,
+        uploaded_by: user.uid,
+        uploaded_by_display_name: user.displayName || user.email || 'Unknown User',
+      };
 
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
+      let result;
+      if (initialData?.id) {
+        // Update existing material
+        result = await supabase
+          .from('study_materials')
+          .update(materialData)
+          .eq('id', initialData.id)
+          .select()
+          .single();
+      } else {
+        // Create new material
+        result = await supabase
+          .from('study_materials')
+          .insert(materialData)
+          .select()
+          .single();
+      }
 
-    onSubmitSuccess(newMaterial);
-    toast({ title: initialData ? "Material Updated" : "Material Uploaded", description: `"${newMaterial.title}" processed.` });
-    form.reset({
+      if (result.error) {
+        throw result.error;
+      }
+
+      const savedMaterial = result.data;
+      onSubmitSuccess(savedMaterial);
+      toast({
+        title: initialData ? "Material Updated" : "Material Uploaded",
+        description: `"${savedMaterial.title}" ${initialData ? 'updated' : 'uploaded'} successfully.`
+      });
+
+      form.reset({
         branch: data.branch, // Keep branch and sem for easier subsequent uploads
         semester: data.semester,
         title: "",
         description: "",
-        attachments: undefined,
-    });
-    setSelectedFilesDisplay([]);
-    const fileInput = document.getElementById('material-attachments') as HTMLInputElement | null;
-    if (fileInput) fileInput.value = "";
+        attachments: null,
+      });
+      setSelectedFilesDisplay([]);
+      const fileInput = document.getElementById('material-attachments') as HTMLInputElement | null;
+      if (fileInput) fileInput.value = "";
 
-    setIsLoading(false);
+    } catch (error) {
+      console.error('Error saving material:', error);
+      toast({
+        title: "Error",
+        description: `Failed to ${initialData ? 'update' : 'upload'} material. Please try again.`,
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

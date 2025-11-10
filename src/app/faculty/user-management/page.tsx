@@ -4,9 +4,10 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth, User } from "@/components/auth-provider";
+import ParticleBackground from "@/components/ui/particle-background";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, ArrowLeft } from "lucide-react";
 import ManageStudentsTab from "@/components/admin/ManageStudentsTab"; // Reusing the component from its new location
 import { SimpleRotatingSpinner } from "@/components/ui/loading-spinners";
 
@@ -33,8 +34,13 @@ export default function FacultyUserManagementPage() {
 
   if (pageLoading || authLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-[calc(100vh-10rem)]">
-        <SimpleRotatingSpinner className="h-12 w-12 text-primary" />
+      <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+        {/* Particle background animation */}
+        <ParticleBackground />
+
+        <div className="flex justify-center items-center min-h-[calc(100vh-10rem)] relative z-10">
+          <SimpleRotatingSpinner className="h-12 w-12 text-primary" />
+        </div>
       </div>
     );
   }
@@ -67,8 +73,17 @@ export default function FacultyUserManagementPage() {
     : 'N/A';
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <Card>
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="mb-6 relative z-10">
+        <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back">
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <Card className="relative z-10">
         <CardHeader>
           <CardTitle>Manage Students</CardTitle>
           <CardDescription>View, approve, and manage student accounts for your assigned branches: {assignedBranchesText} and semesters: {assignedSemestersText}.</CardDescription>

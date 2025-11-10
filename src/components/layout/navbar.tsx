@@ -22,11 +22,19 @@ import {
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { LogOut, LayoutDashboard, Settings, Newspaper, Home, UserCircle, Sun, Moon, BookOpen, CalendarClock, BarChart3, FilePlus2, Users, Users as UsersIcon, Bell } from "lucide-react";
+import { supabase } from '@/lib/supabase';
 import { ThemeToggleButton } from "@/components/theme-toggle-button";
 import { getInitials } from "@/components/content/post-item-utils";
 import { SimpleRotatingSpinner } from "@/components/ui/loading-spinners";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { NOTIFICATION_STORAGE_KEY } from "@/types";
+import { ProfileService } from '@/lib/profile-service';
+
+interface SiteSettingsLogo {
+  collegelogourl?: string;
+}
+
+const SITE_SETTINGS_STORAGE_KEY = 'apsconnect_site_settings_v1';
 
 export function Navbar() {
   const pathname = usePathname();
@@ -35,105 +43,231 @@ export function Navbar() {
   const [userAvatarUrl, setUserAvatarUrl] = useState<string | undefined>(undefined);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [collegeLogoUrl, setCollegeLogoUrl] = useState<string | undefined>(undefined);
 
-  const calculateUnreadNotifications = useCallback(() => {
-    if (typeof window === 'undefined' || !user) {
+  const calculateUnreadNotifications = useCallback(async () => {
+    if (!user) {
       setUnreadNotifications(0);
       return;
     }
     
-    // Calculate unread notifications
-    const allNotificationsStr = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
-    const allNotifications: Notification[] = allNotificationsStr ? JSON.parse(allNotificationsStr) : [];
-    const userNotifications = allNotifications.filter(n => n.userId === user.uid);
-    const unread = userNotifications.filter(n => !n.isRead);
-    setUnreadNotifications(unread.length);
+    try {
+      // Read unread notification count from database
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.uid)
+        .eq('read', false);
 
+      if (error) {
+        console.error('❌ Error fetching notification count:', error);
+        setUnreadNotifications(0);
+      } else {
+        setUnreadNotifications(count || 0);
+      }
+    } catch (error) {
+      console.error('❌ Error in calculateUnreadNotifications:', error);
+      setUnreadNotifications(0);
+    }
   }, [user]);
 
-  const markNotificationsAsRead = () => {
-    if (typeof window === 'undefined' || !user || unreadNotifications === 0) return;
-    const allNotificationsStr = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
-    let allNotifications: Notification[] = allNotificationsStr ? JSON.parse(allNotificationsStr) : [];
+  const markNotificationsAsRead = useCallback(async () => {
+    if (!user || unreadNotifications === 0) return;
     
-    allNotifications = allNotifications.map(n => {
-        if (n.userId === user.uid && !n.isRead) {
-            return { ...n, isRead: true };
-        }
-        return n;
-    });
+    try {
+      // Mark all notifications as read in database
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('user_id', user.uid)
+        .eq('read', false);
 
-    localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(allNotifications));
-    setUnreadNotifications(0);
-  };
-  
+      if (error) {
+        console.error('Error marking notifications as read:', error);
+      } else {
+        setUnreadNotifications(0);
+      }
+    } catch (error) {
+      console.error('Error in markNotificationsAsRead:', error);
+    }
+  }, [user, unreadNotifications]);
 
   useEffect(() => {
-    calculateUnreadNotifications();
-    if (user && typeof window !== 'undefined') {
-      const userProfileStr = localStorage.getItem(`apsconnect_user_${user.uid}`);
-      if (userProfileStr) {
-        const userProfile = JSON.parse(userProfileStr) as UserProfile;
-        setUserAvatarUrl(userProfile.avatarDataUrl);
-      } else {
-        setUserAvatarUrl(undefined);
-      }
-    } else {
-      setUserAvatarUrl(undefined);
-    }
+    const loadCollegeLogo = async () => {
+      try {
+        // Try to load from Supabase first (silently fail if table doesn't exist)
+        let data, error;
+        try {
+          const result = await supabase
+            .from('site_settings')
+            .select('collegelogourl')
+            .single();
+          data = result.data;
+          error = result.error;
+        } catch (e) {
+          // Silently ignore if site_settings table doesn't exist
+          console.warn('Site settings table not available, using fallback');
+          data = null;
+          error = null;
+        }
 
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === NOTIFICATION_STORAGE_KEY || (user && event.key === `apsconnect_seen_post_ids_${user.uid}`)) {
-        calculateUnreadNotifications();
-      }
-      if (user && event.key === `apsconnect_user_${user.uid}`) {
-        const updatedProfileStr = localStorage.getItem(`apsconnect_user_${user.uid}`);
-        if (updatedProfileStr) {
-          const updatedProfile = JSON.parse(updatedProfileStr) as UserProfile;
-          setUserAvatarUrl(updatedProfile.avatarDataUrl);
+        if (!error && data?.collegelogourl) {
+          setCollegeLogoUrl(data.collegelogourl);
         } else {
-           setUserAvatarUrl(undefined);
+          // Fall back to localStorage
+          if (typeof window !== 'undefined') {
+            const settingsStr = localStorage.getItem(SITE_SETTINGS_STORAGE_KEY);
+            if (settingsStr) {
+              try {
+                const settings = JSON.parse(settingsStr);
+                setCollegeLogoUrl(settings.collegelogourl);
+              } catch (e) {
+                console.error("Failed to parse logo settings:", e);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading college logo:', error);
+        // Silent fallback - don't crash the navbar
+        if (typeof window !== 'undefined') {
+          const settingsStr = localStorage.getItem(SITE_SETTINGS_STORAGE_KEY);
+          if (settingsStr) {
+            try {
+              const settings = JSON.parse(settingsStr);
+              setCollegeLogoUrl(settings.collegelogourl);
+            } catch (e) {
+              console.error("Failed to parse logo settings:", e);
+            }
+          }
         }
       }
     };
+
+    loadCollegeLogo();
+
+    // Set up real-time subscription for logo updates
+    const logoChannel = supabase
+      .channel('navbar_logo_updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'site_settings'
+        },
+        (payload) => {
+          if (payload.new && typeof payload.new === 'object') {
+            const newData = payload.new as Record<string, any>;
+            if (newData.collegelogourl !== undefined) {
+              setCollegeLogoUrl(newData.collegelogourl || undefined);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    let notificationChannel: any = null;
+    if (user) {
+      notificationChannel = supabase
+        .channel(`notifications_${user.uid}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.uid}`
+          },
+          (payload) => {
+            if (payload.new) {
+              // Refresh notification count from database
+              calculateUnreadNotifications();
+            }
+          }
+        )
+        .subscribe();
+    }
+
+    calculateUnreadNotifications();
 
     const handlePostsSeenEvent = () => {
         calculateUnreadNotifications();
     };
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('storage', handleStorageChange);
       window.addEventListener('postsSeen', handlePostsSeenEvent);
-      // Custom event listener for notifications
-      window.addEventListener('notificationsUpdated', calculateUnreadNotifications);
     }
 
     return () => {
+      supabase.removeChannel(logoChannel);
+      if (notificationChannel) {
+        supabase.removeChannel(notificationChannel);
+      }
       if (typeof window !== 'undefined') {
-        window.removeEventListener('storage', handleStorageChange);
         window.removeEventListener('postsSeen', handlePostsSeenEvent);
-        window.removeEventListener('notificationsUpdated', calculateUnreadNotifications);
       }
     };
-  }, [user, pathname, calculateUnreadNotifications]);
+  }, [user, pathname]);
 
-  const handleLogout = async () => {
-    await signOut();
-  };
+  useEffect(() => {
+    const loadAvatar = async () => {
+      if (user && typeof window !== 'undefined') {
+        // Use ProfileService as primary source
+        const userProfile = await ProfileService.getProfile(user.uid);
+        if (userProfile?.avatar_url) {
+          setUserAvatarUrl(userProfile.avatar_url);
+          return;
+        }
+
+        // Fallback to localStorage during transition period (remove after 30 days)
+        const localProfileStr = localStorage.getItem(`apsconnect_user_${user.uid}`);
+        if (localProfileStr) {
+          const localProfile = JSON.parse(localProfileStr) as UserProfile;
+          if (localProfile.avatar_url) {
+            setUserAvatarUrl(localProfile.avatar_url);
+            // Migrate to Supabase
+            await ProfileService.cacheProfile(localProfile);
+            return;
+          }
+        }
+
+        setUserAvatarUrl(undefined);
+      } else {
+        setUserAvatarUrl(undefined);
+      }
+    };
+
+    loadAvatar();
+  }, [user]);
 
   const getDashboardLink = () => {
     if (!user) return "/";
+
     switch (user.role) {
       case "admin":
         return "/admin";
       case "faculty":
         return "/faculty";
+      case "alumni":
+        return "/alumni";
       case "student":
       case "pending":
-      case "alumni":
         return "/student";
       default:
         return "/dashboard";
+    }
+  };
+
+  const handleLogout = async () => {
+    // Immediately redirect to login for instant logout experience
+    router.push('/login');
+
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Logout failed:', error);
+      // Already redirected, so no need for fallback redirect
     }
   };
 
@@ -141,7 +275,15 @@ export function Navbar() {
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 max-w-screen-2xl items-center">
         <Link href="/" className="mr-4 md:mr-6 flex items-center space-x-2" aria-label="Go to APSConnect Homepage">
-          <Icons.AppLogo className="h-6 w-6 text-primary" />
+          {collegeLogoUrl ? (
+            <img
+              src={collegeLogoUrl}
+              alt="College Logo"
+              className="h-8 w-auto max-w-[120px] object-contain ml-[5%]"
+            />
+          ) : (
+            <Icons.AppLogo className="h-6 w-6 text-primary ml-[5%]" />
+          )}
           <span className="font-bold sm:inline-block">{SiteConfig.name}</span>
         </Link>
         <nav className="hidden md:flex flex-1 items-center space-x-2 sm:space-x-4 md:space-x-6 text-sm font-medium">
@@ -153,7 +295,8 @@ export function Navbar() {
               if (item.protected && !user) return null;
               if (item.adminOnly && (!user || user.role !== 'admin')) return null;
               if (item.facultyOnly && (!user || user.role !== 'faculty')) return null;
-              if (item.studentOnly && (!user || !(user.role === 'student' || user.role === 'pending' || user.role === 'alumni'))) return null;
+              if (item.alumniOnly && (!user || user.role !== 'alumni')) return null;
+              if (item.studentOnly && (!user || user.role !== 'student')) return null;
             }
             return (
                 <Link
@@ -230,13 +373,15 @@ export function Navbar() {
                         <span>Dashboard</span>
                     </Link>
                     </DropdownMenuItem>
-                     <DropdownMenuItem asChild>
+                     {user.role !== 'alumni' && (
+                       <DropdownMenuItem asChild>
                         <Link href="/profiles" className="flex items-center">
                           <UsersIcon className="mr-2 h-4 w-4" />
                           <span>Profiles</span>
                         </Link>
                       </DropdownMenuItem>
-                     {(user.role === 'admin' || user.role === 'faculty' || user.role === 'student' || user.role === 'alumni') && (
+                     )}
+                     {(user.role === 'admin' || user.role === 'faculty' || user.role === 'student') && (
                       <DropdownMenuItem asChild>
                         <Link href="/clubs" className="flex items-center">
                           <UsersIcon className="mr-2 h-4 w-4" />
@@ -254,7 +399,7 @@ export function Navbar() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="flex items-center cursor-pointer">
                   <LogOut className="mr-2 h-4 w-4" />
-                  <span>Log out</span>
+                  <span>End Session</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

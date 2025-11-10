@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { AssignmentForm } from '@/components/assignments/assignment-form';
 import type { Assignment, Branch, Semester } from '@/types';
 import { ASSIGNMENT_STORAGE_KEY, semesters } from '@/types';
-import { getAssignments, deleteAssignment } from '@/lib/supabase-utils';
+import { getAssignments, createAssignment, updateAssignment, deleteAssignment, downloadFile } from '@/lib/supabase-utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCnCardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,10 +25,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import Link from 'next/link';
-import { ShieldCheck, BookMarked, PlusCircle, Edit3, Trash2, Download, Search, Info, ArrowLeft } from 'lucide-react';
+import { ShieldCheck, BookMarked, PlusCircle, PenLine, Trash2, Download, Search, Info, ArrowLeft } from 'lucide-react';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+import ParticleBackground from "@/components/ui/particle-background";
 
 export default function FacultyAssignmentsPage() {
   const { user, isLoading: authLoading } = useAuth();
@@ -75,13 +76,17 @@ export default function FacultyAssignmentsPage() {
       if (!user || user.role !== 'faculty') {
         router.push(user ? '/dashboard' : '/login');
       } else {
-         if (memoizedFacultyAssignedBranches.length > 0 && filterBranch === 'all') {
-            setFilterBranch(memoizedFacultyAssignedBranches[0]);
-        }
         setPageLoading(false);
       }
     }
-  }, [user, authLoading, router, memoizedFacultyAssignedBranches, filterBranch]);
+  }, [user, authLoading, router]);
+
+  // Separate effect for filter initialization
+  useEffect(() => {
+    if (memoizedFacultyAssignedBranches.length > 0 && filterBranch === 'all') {
+      setFilterBranch(memoizedFacultyAssignedBranches[0]);
+    }
+  }, [memoizedFacultyAssignedBranches, filterBranch]);
 
   useEffect(() => {
     if (!pageLoading && user && user.role === 'faculty') {
@@ -163,16 +168,22 @@ export default function FacultyAssignmentsPage() {
     setAssignmentToDelete(null);
   };
   
-  const handleDownloadAttachment = (attachment: Assignment['attachments'][0]) => {
-    toast({ title: "Download Started (Mock)", description: `Downloading ${attachment.name}... This is a mock.`, duration: 3000 });
-    const blob = new Blob(["Mock file content for " + attachment.name], { type: attachment.type });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = attachment.name;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
+  const handleDownloadAttachment = async (attachment: Assignment['attachments'][0]) => {
+    try {
+      toast({ title: "Download Started", description: `Downloading ${attachment.name}...`, duration: 3000 });
+      const blob = await downloadFile('chat-attachments', attachment.filePath);
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = attachment.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+      toast({ title: "Download Complete", description: `${attachment.name} downloaded successfully.`, duration: 2000 });
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      toast({ title: "Download Failed", description: `Failed to download ${attachment.name}.`, variant: "destructive" });
+    }
   };
 
 
@@ -220,8 +231,11 @@ export default function FacultyAssignmentsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4 relative z-10">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center">
             <BookMarked className="mr-3 h-7 w-7" /> Assignment Management
         </h1>
@@ -236,7 +250,7 @@ export default function FacultyAssignmentsPage() {
       </div>
       <p className="text-sm sm:text-base text-muted-foreground mb-8">Create, view, and manage assignments for your assigned branches.</p>
 
-      <Card className="shadow-lg mb-8">
+      <Card className="shadow-lg mb-8 relative z-10">
         <CardHeader>
           <CardTitle>Filter &amp; Search Assignments</CardTitle>
            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
@@ -268,7 +282,7 @@ export default function FacultyAssignmentsPage() {
         </CardHeader>
       </Card>
 
-      <Card className="shadow-lg">
+      <Card className="shadow-lg relative z-10">
         <CardHeader>
           <CardTitle>Assignment List</CardTitle>
           <ShadCnCardDescription>
@@ -283,52 +297,133 @@ export default function FacultyAssignmentsPage() {
                 : "No assignments posted for your assigned branches yet. Click 'Create New Assignment' to start."}
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Title</TableHead>
-                    <TableHead>Branch</TableHead>
-                    <TableHead>Semester</TableHead>
-                    <TableHead>Due Date</TableHead>
-                    <TableHead>Files</TableHead>
-                    <TableHead>Posted By</TableHead>
-                    <TableHead>Posted At</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredAssignments.map(assignment => (
-                    <TableRow key={assignment.id}>
-                      <TableCell className="font-medium">{assignment.title}</TableCell>
-                      <TableCell><Badge variant="outline">{assignment.branch}</Badge></TableCell>
-                      <TableCell><Badge variant="secondary">{assignment.semester}</Badge></TableCell>
-                      <TableCell>{assignment.due_date ? format(new Date(assignment.due_date), "PPP") : 'N/A'}</TableCell>
-                       <TableCell>
-                        {assignment.attachments.map((att, idx) => (
-                          <div key={idx} className="text-xs truncate max-w-[150px]" title={att.name}>
-                            <Button variant="link" size="sm" className="p-0 h-auto" onClick={() => handleDownloadAttachment(att)} aria-label={`Download attachment ${att.name}`}>
-                                <Download className="mr-1 h-3 w-3"/> {att.name}
-                            </Button>
-                             ({(att.size / (1024 * 1024)).toFixed(2)} MB)
+            <>
+              {/* Mobile Card Layout - visible on screens < md */}
+              <div className="md:hidden space-y-4">
+                {filteredAssignments.map(assignment => (
+                  <Card key={assignment.id} className="shadow-sm border">
+                    <CardContent className="p-4">
+                      <div className="space-y-3">
+                        {/* Title */}
+                        <div>
+                          <h3 className="font-semibold text-lg text-primary">{assignment.title}</h3>
+                        </div>
+
+                        {/* Branch and Semester */}
+                        <div className="flex gap-2">
+                          <Badge variant="outline">{assignment.branch}</Badge>
+                          <Badge variant="secondary">{assignment.semester}</Badge>
+                        </div>
+
+                        {/* Due Date */}
+                        <div className="text-sm">
+                          <span className="font-medium">Due:</span> {assignment.due_date ? format(new Date(assignment.due_date), "PPP") : 'N/A'}
+                        </div>
+
+                        {/* Files */}
+                        {assignment.attachments.length > 0 && (
+                          <div className="text-sm">
+                            <span className="font-medium">Files:</span>
+                            <div className="mt-1 space-y-1">
+                              {assignment.attachments.map((att, idx) => (
+                                <div key={idx} className="flex items-center gap-1">
+                                  <Button variant="link" size="sm" className="p-0 h-auto text-xs" onClick={() => handleDownloadAttachment(att)} aria-label={`Download attachment ${att.name}`}>
+                                    <Download className="mr-1 h-3 w-3"/> {att.name}
+                                  </Button>
+                                  <span className="text-muted-foreground">({(att.size / (1024 * 1024)).toFixed(2)} MB)</span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ))}
-                      </TableCell>
-                      <TableCell>{assignment.instructor_name || 'N/A'}</TableCell>
-                      <TableCell>{assignment.posted_at && !isNaN(new Date(assignment.posted_at).getTime()) ? format(new Date(assignment.posted_at), "PPp") : 'N/A'}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                          <Button variant="outline" size="sm" onClick={() => openEditDialog(assignment)} aria-label={`Edit assignment ${assignment.title}`}>
-                              <Edit3 className="h-3 w-3 mr-1 sm:mr-2" /> <span className="hidden sm:inline">Edit</span>
+                        )}
+
+                        {/* Posted Info */}
+                        <div className="text-xs text-muted-foreground border-t pt-2">
+                          <div className="font-medium text-foreground flex items-center gap-1">
+                            {assignment.instructor_name || 'N/A'}
+                            <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-semibold bg-secondary text-secondary-foreground">Faculty</span>
+                          </div>
+                          <div>{assignment.posted_at && !isNaN(new Date(assignment.posted_at).getTime()) ? format(new Date(assignment.posted_at), "PPp") : 'N/A'}</div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-2 pt-2 border-t">
+                          <Button variant="outline" size="sm" className="flex-1" onClick={() => openEditDialog(assignment)} aria-label={`Edit assignment ${assignment.title}`}>
+                            <PenLine className="mr-1 h-3 w-3" /> Edit
                           </Button>
-                          <Button variant="destructive" size="sm" onClick={() => confirmDeleteAssignment(assignment)} aria-label={`Delete assignment ${assignment.title}`}>
-                              <Trash2 className="h-3 w-3 mr-1 sm:mr-2" /> <span className="hidden sm:inline">Delete</span>
+                          <Button variant="destructive" size="sm" className="flex-1" onClick={() => confirmDeleteAssignment(assignment)} aria-label={`Delete assignment ${assignment.title}`}>
+                            <Trash2 className="mr-1 h-3 w-3" /> Delete
                           </Button>
-                      </TableCell>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Desktop Table Layout - hidden on screens < md */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Branch</TableHead>
+                      <TableHead>Semester</TableHead>
+                      <TableHead>Due Date</TableHead>
+                      <TableHead>Files</TableHead>
+                      <TableHead className="hidden md:table-cell">Posted By</TableHead>
+                      <TableHead className="hidden md:table-cell">Posted At</TableHead>
+                      <TableHead className="md:hidden">Posted</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredAssignments.map(assignment => (
+                      <TableRow key={assignment.id}>
+                        <TableCell className="font-medium">{assignment.title}</TableCell>
+                        <TableCell><Badge variant="outline">{assignment.branch}</Badge></TableCell>
+                        <TableCell><Badge variant="secondary">{assignment.semester}</Badge></TableCell>
+                        <TableCell>{assignment.due_date ? format(new Date(assignment.due_date), "PPP") : 'N/A'}</TableCell>
+                         <TableCell>
+                          {assignment.attachments.map((att, idx) => (
+                            <div key={idx} className="text-xs truncate max-w-[150px]" title={att.name}>
+                              <Button variant="link" size="sm" className="p-0 h-auto" onClick={() => handleDownloadAttachment(att)} aria-label={`Download attachment ${att.name}`}>
+                                  <Download className="mr-1 h-3 w-3"/> {att.name}
+                              </Button>
+                               ({(att.size / (1024 * 1024)).toFixed(2)} MB)
+                            </div>
+                          ))}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          <div className="flex items-center gap-1">
+                            {assignment.instructor_name || 'N/A'}
+                            <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-semibold bg-secondary text-secondary-foreground">Faculty</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">{assignment.posted_at && !isNaN(new Date(assignment.posted_at).getTime()) ? format(new Date(assignment.posted_at), "PPp") : 'N/A'}</TableCell>
+                        <TableCell className="md:hidden">
+                          <div className="text-xs">
+                            <div className="font-medium flex items-center gap-1">
+                              {assignment.instructor_name || 'N/A'}
+                              <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-semibold bg-secondary text-secondary-foreground">Faculty</span>
+                            </div>
+                            <div className="text-muted-foreground">{assignment.posted_at && !isNaN(new Date(assignment.posted_at).getTime()) ? format(new Date(assignment.posted_at), "PPp") : 'N/A'}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right space-x-2">
+                            <Button variant="outline" size="icon" onClick={() => openEditDialog(assignment)} aria-label={`Edit assignment ${assignment.title}`}>
+                                <PenLine className="h-4 w-4" />
+                            </Button>
+                            <Button variant="destructive" size="icon" onClick={() => confirmDeleteAssignment(assignment)} aria-label={`Delete assignment ${assignment.title}`}>
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

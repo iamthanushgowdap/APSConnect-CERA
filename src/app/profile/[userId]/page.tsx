@@ -9,8 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
+import { Button } from '@/components/ui/button';
 import { getInitials } from '@/components/content/post-item-utils';
-import { Mail, Briefcase, GraduationCap, Users, BookOpen, Linkedin, Github, Globe, Phone, User as UserIcon, MessageCircle } from 'lucide-react';
+import { Mail, Briefcase, GraduationCap, Users, BookOpen, Linkedin, Github, Globe, Phone, User as UserIcon, MessageCircle, ArrowLeft, Twitter, Instagram, Facebook, Youtube } from 'lucide-react';
+import { RoleBadge } from '@/components/ui/role-badge';
+import { getUserProfiles } from '@/lib/supabase-utils';
 import Link from 'next/link';
 
 export default function PublicProfilePage() {
@@ -23,29 +26,80 @@ export default function PublicProfilePage() {
 
   const userId = params.userId as string;
 
+  if (!userId) {
+    return (
+      <div className="container mx-auto max-w-4xl py-8">
+        <div className="text-center py-10">
+          <h2 className="text-2xl font-semibold text-muted-foreground mb-2">Invalid Profile URL</h2>
+          <p className="text-muted-foreground">The profile URL is missing required information.</p>
+        </div>
+      </div>
+    );
+  }
+
   useEffect(() => {
     if (!authLoading) {
       if (!authUser) {
         router.push('/login');
         return;
       }
-      if (userId) {
-        const profileKey = `apsconnect_user_${userId}`;
-        const profileStr = localStorage.getItem(profileKey);
-        if (profileStr) {
-          setProfile(JSON.parse(profileStr));
+
+      const loadProfile = async () => {
+        try {
+          // First try to get profile from Supabase
+          const profiles = await getUserProfiles();
+          const foundProfile = profiles.find((p: UserProfile) => p.id === userId);
+          
+          if (foundProfile) {
+            setProfile(foundProfile);
+          } else {
+            // Fallback to localStorage if not found in Supabase
+            const profileKey = `apsconnect_user_${userId}`;
+            const profileStr = localStorage.getItem(profileKey);
+            if (profileStr) {
+              setProfile(JSON.parse(profileStr));
+            }
+          }
+        } catch (error) {
+          console.error('Failed to load profile from Supabase:', error);
+          // Fallback to localStorage if Supabase fails
+          const profileKey = `apsconnect_user_${userId}`;
+          const profileStr = localStorage.getItem(profileKey);
+          if (profileStr) {
+            setProfile(JSON.parse(profileStr));
+          }
         }
+        
+        setPageLoading(false);
+      };
+
+      if (userId) {
+        loadProfile();
+      } else {
+        setPageLoading(false);
       }
-      setPageLoading(false);
     }
   }, [userId, authUser, authLoading, router]);
 
   if (pageLoading || authLoading) {
-    return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]"><SimpleRotatingSpinner className="h-12 w-12 text-primary" /></div>;
+    return (
+      <div className="container mx-auto max-w-4xl py-8">
+        <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
+          <SimpleRotatingSpinner className="h-12 w-12 text-primary" />
+        </div>
+      </div>
+    );
   }
 
   if (!profile) {
-    return <div className="text-center py-10">Profile not found.</div>;
+    return (
+      <div className="container mx-auto max-w-4xl py-8">
+        <div className="text-center py-10">
+          <h2 className="text-2xl font-semibold text-muted-foreground mb-2">Profile Not Found</h2>
+          <p className="text-muted-foreground">The requested profile could not be found or you don't have permission to view it.</p>
+        </div>
+      </div>
+    );
   }
   
   const isStudent = profile.role === 'student';
@@ -53,14 +107,22 @@ export default function PublicProfilePage() {
 
   return (
     <div className="container mx-auto max-w-4xl py-8">
+      <Button variant="outline" size="icon" onClick={() => router.back()} className="mb-6" aria-label="Go back">
+        <ArrowLeft className="h-4 w-4" />
+      </Button>
       <Card className="w-full shadow-xl">
         <CardHeader className="bg-muted/30 p-6 text-center">
             <Avatar className="h-32 w-32 mx-auto ring-4 ring-primary/20 shadow-lg">
-                <AvatarImage src={profile.avatarDataUrl} />
-                <AvatarFallback className="text-4xl">{getInitials(profile.displayName)}</AvatarFallback>
+                <AvatarImage src={profile.avatar_url} />
+                <AvatarFallback className="text-4xl">{getInitials(profile.full_name)}</AvatarFallback>
             </Avatar>
-            <CardTitle className="mt-4 text-3xl font-bold">{profile.displayName}</CardTitle>
-            <CardDescription className="text-lg text-muted-foreground">{isStudent ? `${profile.branch} - ${profile.semester}` : (isAlumni ? profile.placementJobTitle || 'Alumni' : profile.facultyTitle || 'Faculty Member')}</CardDescription>
+            <CardTitle className="mt-4 text-3xl font-bold flex items-center justify-center gap-3">
+              {profile.full_name}
+              <RoleBadge role={profile.role} size="md" />
+            </CardTitle>
+            <CardDescription className="text-lg text-muted-foreground">
+              {isStudent ? `${profile.branch} - ${profile.semester}${profile.graduation_year ? ` (Expected Graduation: ${profile.graduation_year})` : ''}` : (isAlumni ? profile.placement_job_title || 'Alumni' : profile.faculty_title || 'Faculty Member')}
+            </CardDescription>
              {profile.pronouns && <p className="text-sm text-muted-foreground">({profile.pronouns})</p>}
         </CardHeader>
         <CardContent className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -68,16 +130,24 @@ export default function PublicProfilePage() {
           <div className="md:col-span-1 md:border-r md:pr-6 space-y-4">
             <h3 className="font-semibold text-lg border-b pb-2">Contact Information</h3>
             <InfoItem icon={Mail} text={profile.email} href={`mailto:${profile.email}`} />
-            {profile.phoneNumber && <InfoItem icon={Phone} text={profile.phoneNumber} href={`tel:${profile.phoneNumber}`} />}
-            {profile.linkedinUrl && <InfoItem icon={Linkedin} text="LinkedIn Profile" href={profile.linkedinUrl} isLink />}
-            {profile.githubUrl && <InfoItem icon={Github} text="GitHub Profile" href={profile.githubUrl} isLink />}
-            {profile.portfolioUrl && <InfoItem icon={Globe} text="Portfolio/Website" href={profile.portfolioUrl} isLink />}
+            {profile.phone && <InfoItem icon={Phone} text={profile.phone} href={`tel:${profile.phone}`} />}
+            {profile.linkedin_url && <InfoItem icon={Linkedin} text="LinkedIn Profile" href={profile.linkedin_url} isLink />}
+            {profile.github_url && <InfoItem icon={Github} text="GitHub Profile" href={profile.github_url} isLink />}
+            {profile.portfolio_url && <InfoItem icon={Globe} text="Portfolio/Website" href={profile.portfolio_url} isLink />}
+            {profile.social_links && typeof profile.social_links === 'object' && Object.keys(profile.social_links).length > 0 && (
+              <>
+                {profile.social_links.twitter && <InfoItem icon={Twitter} text="Twitter" href={profile.social_links.twitter} isLink />}
+                {profile.social_links.instagram && <InfoItem icon={Instagram} text="Instagram" href={profile.social_links.instagram} isLink />}
+                {profile.social_links.facebook && <InfoItem icon={Facebook} text="Facebook" href={profile.social_links.facebook} isLink />}
+                {profile.social_links.youtube && <InfoItem icon={Youtube} text="YouTube" href={profile.social_links.youtube} isLink />}
+              </>
+            )}
              {isAlumni && (
                 <div className="pt-4 mt-4 border-t">
                     <h3 className="font-semibold text-lg border-b pb-2 mb-3">Placement Details</h3>
-                    {profile.placementCompany && <InfoItem icon={Briefcase} text={profile.placementCompany} />}
-                    {profile.placementJobTitle && <InfoItem icon={UserIcon} text={profile.placementJobTitle} />}
-                    {profile.referralInfo && <InfoItem icon={MessageCircle} text={profile.referralInfo} />}
+                    {profile.placement_company && <InfoItem icon={Briefcase} text={profile.placement_company} />}
+                    {profile.placement_job_title && <InfoItem icon={UserIcon} text={profile.placement_job_title} />}
+                    {profile.referral_info && <InfoItem icon={MessageCircle} text={profile.referral_info} />}
                 </div>
             )}
           </div>
@@ -88,7 +158,8 @@ export default function PublicProfilePage() {
             {profile.education && profile.education.length > 0 && <ResumeDisplaySection title="Education" items={profile.education} renderItem={(item) => <div><p className="font-semibold">{item.degree}</p><p className="text-sm text-muted-foreground">{item.institution}</p><p className="text-xs text-muted-foreground">{item.graduationYear} &bull; Score: {item.score}</p></div>} />}
             {profile.experience && profile.experience.length > 0 && <ResumeDisplaySection title="Experience" items={profile.experience} renderItem={(item) => <div><p className="font-semibold">{item.title} at {item.company}</p><p className="text-xs text-muted-foreground">{item.duration}</p><p className="text-sm mt-1 whitespace-pre-wrap">{item.description}</p></div>} />}
             {profile.projects && profile.projects.length > 0 && <ResumeDisplaySection title="Projects" items={profile.projects} renderItem={(item) => <div><Link href={item.link || '#'} target="_blank" className="font-semibold text-primary hover:underline">{item.title}</Link><p className="text-sm mt-1 whitespace-pre-wrap">{item.description}</p></div>} />}
-            {profile.skills && profile.skills.length > 0 && <ResumeDisplaySection title="Skills" items={profile.skills} renderItem={(item) => <Badge variant="secondary">{item.name}</Badge>} isBadgeList />}
+            {profile.skills && profile.skills.length > 0 && <ResumeDisplaySection title="Skills" items={profile.skills} renderItem={(item) => <Badge variant="secondary">{item}</Badge>} isBadgeList />}
+            {profile.interests && profile.interests.length > 0 && <ResumeDisplaySection title="Interests & Hobbies" items={profile.interests} renderItem={(item) => <Badge variant="outline">{item}</Badge>} isBadgeList />}
             {profile.certifications && profile.certifications.length > 0 && <ResumeDisplaySection title="Certifications" items={profile.certifications} renderItem={(item) => <div><p className="font-semibold">{item.name}</p><p className="text-xs text-muted-foreground">{item.issuingBody} - {item.year}</p></div>} />}
             {profile.achievements && profile.achievements.length > 0 && <ResumeDisplaySection title="Achievements" items={profile.achievements} renderItem={(item) => <p className="text-sm text-muted-foreground">&bull; {item.description}</p>} />}
           </div>

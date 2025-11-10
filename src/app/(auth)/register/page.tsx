@@ -16,9 +16,9 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-  FormDescription as ShadCnFormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from '@/components/ui/password-input';
 import {
   Select,
   SelectContent,
@@ -26,14 +26,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardDescription as ShadCnCardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { createUserProfile, checkExistingUser, getBranches } from '@/lib/supabase-utils';
 import { supabase } from '@/lib/supabase';
 import { useToast } from "@/hooks/use-toast";
-import type { UserProfile, Branch, Semester } from "@/types";
+import { useAuth } from '@/components/auth-provider';
+import type { Branch } from "@/types";
+import type { UserRole } from "@/types";
+import type { Semester } from "@/types";
 import { defaultBranches, semesters } from "@/types";
-import { Icons } from "@/components/icons";
+import { ShootingStars } from "@/components/ui/shooting-stars";
 
+const SITE_SETTINGS_STORAGE_KEY = 'apsconnect_site_settings_v1';
+
+interface SiteSettings {
+  enablestudentregistration?: boolean;
+}
 
 const usnSuffixRegex = /^[0-9]{2}[A-Za-z]{2}[0-9]{3}$/;
 const BRANCH_STORAGE_KEY = 'apsconnect_managed_branches';
@@ -50,7 +57,7 @@ const registerSchema = z.object({
       return val.substring(0, 2) + val.substring(2, 4).toUpperCase() + val.substring(4, 7);
     }),
   branch: z.string({ required_error: "Please select your branch." }),
-  semester: z.string({ required_error: "Please select your semester." }) as z.ZodSchema<Semester>,
+  semester: z.string({ required_error: "Please select your semester." }),
   pronouns: z.string().max(50, { message: "Pronouns cannot exceed 50 characters." }).optional().or(z.literal('')),
 }).refine(data => data.password === data.confirmPassword, {
   message: "Passwords don't match",
@@ -62,18 +69,24 @@ type RegisterFormValues = z.infer<typeof registerSchema>;
 export default function RegisterPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { updateUserContext } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [availableBranches, setAvailableBranches] = useState<Branch[]>(defaultBranches);
+  const [studentRegistrationEnabled, setStudentRegistrationEnabled] = useState(true);
 
   useEffect(() => {
-    console.log('🔄 Registration page: Fetching branches...');
+    const loadStudentRegistrationSetting = async () => {
+      // EMERGENCY BYPASS: Temporarily disable site settings loading to fix login crashes
+      console.log('🔄 Registration setting loading bypassed for emergency fix');
+      setStudentRegistrationEnabled(true); // Always allow registration for now
+    };
+
     const fetchBranches = async () => {
       try {
         console.log('📡 Calling getBranches()...');
         const branchList = await getBranches();
         console.log('✅ Branches fetched:', branchList);
         setAvailableBranches(branchList);
-        console.log('✅ Branches set in state:', branchList.length, 'branches');
       } catch (error) {
         console.error('❌ Error fetching branches:', error);
         console.log('🔄 Falling back to default branches');
@@ -81,9 +94,9 @@ export default function RegisterPage() {
       }
     };
 
+    loadStudentRegistrationSetting();
     fetchBranches();
   }, []);
-
 
   const form = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
@@ -93,10 +106,10 @@ export default function RegisterPage() {
       password: "",
       confirmPassword: "",
       usnSuffix: "",
-      branch: undefined,
-      semester: undefined,
+      branch: "",
+      semester: "",
       pronouns: "",
-    },
+    }
   });
 
   async function onSubmit(data: RegisterFormValues) {
@@ -154,10 +167,10 @@ export default function RegisterPage() {
       }
 
       // Create user profile in Supabase with the auth user ID
-      const userProfileData: Omit<UserProfile, 'id' | 'created_at' | 'updated_at'> = {
+      const userProfileData = {
         email: data.email.toLowerCase(),
         full_name: data.displayName,
-        role: 'pending',
+        role: 'pending' as UserRole,
         usn: fullUsn,
         student_id: fullUsn,
         department: data.branch,
@@ -170,29 +183,33 @@ export default function RegisterPage() {
 
       await createUserProfile({
         ...userProfileData,
-        id: authData.user.id, // Use the auth user's ID
-      } as UserProfile);
+        id: authData.user.id,
+      });
 
-      // Also store in localStorage for immediate login effect (temporary)
+      // Store in localStorage for immediate access
       if (typeof window !== 'undefined') {
-        localStorage.setItem(`apsconnect_user_${fullUsn}`, JSON.stringify({
+        localStorage.setItem(`apsconnect_user_${authData.user.id}`, JSON.stringify({
           ...userProfileData,
           id: authData.user.id,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }));
-
-        localStorage.setItem('mockUser', JSON.stringify({
-          uid: authData.user.id,
-          displayName: data.displayName,
-          email: data.email.toLowerCase(),
-          role: 'pending',
-          usn: fullUsn,
-          branch: data.branch,
-          semester: data.semester,
-          pronouns: data.pronouns || undefined,
-        }));
       }
+
+      // Update auth context immediately with the new user data
+      const newUserData = {
+        uid: authData.user.id,
+        email: data.email.toLowerCase(),
+        displayName: data.displayName,
+        role: 'pending' as UserRole,
+        usn: fullUsn,
+        branch: data.branch,
+        semester: data.semester as Semester,
+        rejectionReason: undefined,
+        is_approved: false,
+      };
+
+      updateUserContext(newUserData);
 
       toast({
         title: "Registration Submitted",
@@ -214,193 +231,528 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="container flex min-h-[calc(100vh-8rem)] sm:min-h-[calc(100vh-10rem)] items-center justify-center py-8 sm:py-12 px-4">
-      <Card className="w-full max-w-sm sm:max-w-lg shadow-xl">
-        <CardHeader className="text-center items-center">
-            <Icons.AppLogo className="h-12 w-12 text-primary mb-4" />
-          <CardTitle className="text-2xl font-bold tracking-tight text-primary">Create an Account</CardTitle>
-          <ShadCnCardDescription className="text-base">Join APSConnect to stay updated with college activities.</ShadCnCardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3 sm:space-y-4">
-              <FormField
-                control={form.control}
-                name="displayName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Full Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Thanush Gowda P" {...field} className="text-sm sm:text-base" suppressHydrationWarning/>
-                    </FormControl>
-                    <FormMessage className="text-xs sm:text-sm"/>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Email</FormLabel>
-                    <FormControl>
-                      <Input type="email" placeholder="you@example.com" {...field} className="text-sm sm:text-base" suppressHydrationWarning/>
-                    </FormControl>
-                    <FormMessage className="text-xs sm:text-sm"/>
-                  </FormItem>
-                )}
-              />
-               <FormField
-                control={form.control}
-                name="usnSuffix"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">University Seat Number (USN)</FormLabel>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm sm:text-base font-medium p-2.5 border border-input rounded-md bg-muted">1AP</span>
-                      <FormControl>
-                        <Input
-                          placeholder="e.g., 23CS001"
-                          {...field}
-                          className="text-sm sm:text-base"
-                          maxLength={7}
-                          onInput={(e) => {
-                            const inputVal = e.currentTarget.value;
-                            // Automatically convert branch part to uppercase dynamically
-                            if (inputVal.length >= 2 && inputVal.length <=4) { // YYBB
-                                const yearPart = inputVal.substring(0,2);
-                                const branchPart = inputVal.substring(2,4);
-                                const rollPart = inputVal.substring(4);
-                                e.currentTarget.value = yearPart + branchPart.toUpperCase() + rollPart;
-                            } else if (inputVal.length > 4) { // YYBBBNNN
-                                const yearPart = inputVal.substring(0,2);
-                                const branchPart = inputVal.substring(2,4).toUpperCase(); // Ensure branch is uppercase
-                                const rollPart = inputVal.substring(4);
-                                e.currentTarget.value = yearPart + branchPart + rollPart;
-                            }
-                            field.onChange(e); // Propagate change to RHF
-                          }}
-                          suppressHydrationWarning
-                        />
-                      </FormControl>
-                    </div>
-                    <ShadCnFormDescription className="text-xs sm:text-sm">
-                      e.g., 23CS001
-                    </ShadCnFormDescription>
-                    <FormMessage className="text-xs sm:text-sm"/>
-                  </FormItem>
-                )}
-              />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="branch"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-sm">Branch</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value} >
+    <>
+      <ShootingStars />
+      <div className="container mx-auto px-4 py-8 pt-24 pb-48 min-h-screen" style={{ backgroundColor: 'hsl(var(--background))', fontFamily: "'Poppins', sans-serif" }}>
+      <div className="flex justify-center">
+        <div className="background relative" style={{
+          width: '400px',
+          height: '600px',
+          margin: '0 auto'
+        }}>
+          {/* Background Shapes */}
+          <div className="shape" style={{
+            height: '120px',
+            width: '120px',
+            position: 'absolute',
+            borderRadius: '50%',
+            background: 'linear-gradient(#1845ad, #23a2f6)',
+            left: '-40px',
+            top: '-40px'
+          }}></div>
+          <div className="shape" style={{
+            height: '120px',
+            width: '120px',
+            position: 'absolute',
+            borderRadius: '50%',
+            background: 'linear-gradient(to right, #ff512f, #f09819)',
+            right: '-20px',
+            bottom: '-40px'
+          }}></div>
+          {studentRegistrationEnabled ? (
+            <form
+              onSubmit={form.handleSubmit(onSubmit)}
+              style={{
+                height: '600px',
+                width: '400px',
+                backgroundColor: 'rgba(255,255,255,0.1)',
+                position: 'relative',
+                borderRadius: '10px',
+                backdropFilter: 'blur(15px)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+                padding: '40px 30px',
+                color: 'hsl(var(--foreground))',
+                fontFamily: "'Poppins', sans-serif",
+                zIndex: 10,
+                overflowY: 'auto'
+              }}
+            >
+              <h3 style={{
+                fontSize: '28px',
+                fontWeight: '500',
+                lineHeight: '36px',
+                textAlign: 'center',
+                marginBottom: '30px'
+              }}>
+                Create Account
+              </h3>
+
+              <Form {...form}>
+                <div style={{ marginTop: '20px' }}>
+                  <FormField
+                    control={form.control}
+                    name="displayName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel style={{
+                          display: 'block',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          color: 'hsl(var(--foreground))',
+                          marginBottom: '8px'
+                        }}>
+                          Full Name
+                        </FormLabel>
                         <FormControl>
-                          <SelectTrigger className="text-sm sm:text-base" suppressHydrationWarning>
-                            <SelectValue placeholder="Select your branch" />
-                          </SelectTrigger>
+                          <Input
+                            {...field}
+                            placeholder="Thanush Gowda P"
+                            style={{
+                              display: 'block',
+                              height: '45px',
+                              width: '100%',
+                              backgroundColor: 'rgba(255,255,255,0.1)',
+                              borderRadius: '3px',
+                              padding: '0 10px',
+                              fontSize: '14px',
+                              fontWeight: '300',
+                              color: 'hsl(var(--foreground))',
+                              border: '1px solid rgba(255,255,255,0.3)',
+                              outline: 'none'
+                            }}
+                            suppressHydrationWarning
+                          />
                         </FormControl>
-                        <SelectContent>
-                          {availableBranches.length > 0 ? (
-                            availableBranches.map((branchName) => (
-                              <SelectItem key={branchName} value={branchName} className="text-sm sm:text-base">
-                                {branchName}
-                              </SelectItem>
-                            ))
-                          ) : (
-                            <SelectItem value="disabled" disabled className="text-sm sm:text-base">
-                              No branches configured by admin.
-                            </SelectItem>
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage className="text-xs sm:text-sm"/>
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="semester"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-sm">Semester</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormMessage style={{ color: '#ff6b6b', fontSize: '12px', marginTop: '4px' }} />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div style={{ marginTop: '20px' }}>
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel style={{
+                          display: 'block',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          color: 'hsl(var(--foreground))',
+                          marginBottom: '8px'
+                        }}>
+                          Email
+                        </FormLabel>
                         <FormControl>
-                          <SelectTrigger className="text-sm sm:text-base" suppressHydrationWarning>
-                            <SelectValue placeholder="Select semester" />
-                          </SelectTrigger>
+                          <Input
+                            {...field}
+                            type="email"
+                            placeholder="you@example.com"
+                            style={{
+                              display: 'block',
+                              height: '45px',
+                              width: '100%',
+                              backgroundColor: 'rgba(255,255,255,0.1)',
+                              borderRadius: '3px',
+                              padding: '0 10px',
+                              fontSize: '14px',
+                              fontWeight: '300',
+                              color: 'hsl(var(--foreground))',
+                              border: '1px solid rgba(255,255,255,0.3)',
+                              outline: 'none'
+                            }}
+                            suppressHydrationWarning
+                          />
                         </FormControl>
-                        <SelectContent>
-                          {semesters.map((sem) => (
-                            <SelectItem key={sem} value={sem} className="text-sm sm:text-base">
-                              {sem}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage className="text-xs sm:text-sm"/>
-                    </FormItem>
-                  )}
-                />
-              </div>
-               <FormField
-                control={form.control}
-                name="pronouns"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Pronouns (Optional)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., she/her, he/him, they/them" {...field} className="text-sm sm:text-base" suppressHydrationWarning/>
-                    </FormControl>
-                    <FormMessage className="text-xs sm:text-sm"/>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Password</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} className="text-sm sm:text-base" suppressHydrationWarning/>
-                    </FormControl>
-                    <FormMessage className="text-xs sm:text-sm"/>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="confirmPassword"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Confirm Password</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} className="text-sm sm:text-base" suppressHydrationWarning/>
-                    </FormControl>
-                    <FormMessage className="text-xs sm:text-sm"/>
-                  </FormItem>
-                )}
-              />
-              <Button type="submit" className="w-full text-sm sm:text-base" disabled={isLoading} suppressHydrationWarning>
-                {isLoading ? "Registering..." : "Register"}
-              </Button>
+                        <FormMessage style={{ color: '#ff6b6b', fontSize: '12px', marginTop: '4px' }} />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div style={{ marginTop: '20px' }}>
+                  <FormField
+                    control={form.control}
+                    name="usnSuffix"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel style={{
+                          display: 'block',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          color: 'hsl(var(--foreground))',
+                          marginBottom: '8px'
+                        }}>
+                          University Seat Number (USN)
+                        </FormLabel>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            padding: '10px',
+                            border: '1px solid rgba(255,255,255,0.3)',
+                            borderRadius: '3px',
+                            backgroundColor: 'rgba(255,255,255,0.1)',
+                            color: 'hsl(var(--foreground))'
+                          }}>1AP</span>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="e.g., 23CS001"
+                              maxLength={7}
+                              onInput={(e) => {
+                                const inputVal = e.currentTarget.value;
+                                if (inputVal.length >= 2 && inputVal.length <=4) {
+                                  const yearPart = inputVal.substring(0,2);
+                                  const branchPart = inputVal.substring(2,4);
+                                  const rollPart = inputVal.substring(4);
+                                  e.currentTarget.value = yearPart + branchPart.toUpperCase() + rollPart;
+                                } else if (inputVal.length > 4) {
+                                  const yearPart = inputVal.substring(0,2);
+                                  const branchPart = inputVal.substring(2,4).toUpperCase();
+                                  const rollPart = inputVal.substring(4);
+                                  e.currentTarget.value = yearPart + branchPart + rollPart;
+                                }
+                                field.onChange(e);
+                              }}
+                              style={{
+                                display: 'block',
+                                height: '45px',
+                                width: '100%',
+                                backgroundColor: 'rgba(255,255,255,0.1)',
+                                borderRadius: '3px',
+                                padding: '0 10px',
+                                fontSize: '14px',
+                                fontWeight: '300',
+                                color: 'hsl(var(--foreground))',
+                                border: '1px solid rgba(255,255,255,0.3)',
+                                outline: 'none'
+                              }}
+                              suppressHydrationWarning
+                            />
+                          </FormControl>
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'hsl(var(--muted-foreground))', marginTop: '4px' }}>
+                          e.g., 23CS001
+                        </div>
+                        <FormMessage style={{ color: '#ff6b6b', fontSize: '12px', marginTop: '4px' }} />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <FormField
+                    control={form.control}
+                    name="branch"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel style={{
+                          display: 'block',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          color: 'hsl(var(--foreground))',
+                          marginBottom: '8px'
+                        }}>
+                          Branch
+                        </FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
+                          <FormControl>
+                            <select
+                              value={field.value || ""}
+                              onChange={(e) => field.onChange(e.target.value)}
+                              style={{
+                                display: 'block',
+                                height: '45px',
+                                width: '100%',
+                                backgroundColor: 'rgba(255,255,255,0.1)',
+                                borderRadius: '3px',
+                                padding: '0 10px',
+                                fontSize: '14px',
+                                fontWeight: '300',
+                                color: 'hsl(var(--foreground))',
+                                border: '1px solid rgba(255,255,255,0.3)',
+                                outline: 'none'
+                              }}
+                            >
+                              <option value="" disabled style={{ backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--muted-foreground))' }}>
+                                Select Branch
+                              </option>
+                              {availableBranches.length > 0 ? (
+                                availableBranches.map((branchName) => (
+                                  <option key={branchName} value={branchName} style={{ backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}>
+                                    {branchName}
+                                  </option>
+                                ))
+                              ) : (
+                                <option value="disabled" disabled style={{ backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}>
+                                  No branches configured by admin.
+                                </option>
+                              )}
+                            </select>
+                          </FormControl>
+                        </Select>
+                        <FormMessage style={{ color: '#ff6b6b', fontSize: '12px', marginTop: '4px' }} />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="semester"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel style={{
+                          display: 'block',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          color: 'hsl(var(--foreground))',
+                          marginBottom: '8px'
+                        }}>
+                          Semester
+                        </FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
+                          <FormControl>
+                            <select
+                              value={field.value || ""}
+                              onChange={(e) => field.onChange(e.target.value)}
+                              style={{
+                                display: 'block',
+                                height: '45px',
+                                width: '100%',
+                                backgroundColor: 'rgba(255,255,255,0.1)',
+                                borderRadius: '3px',
+                                padding: '0 10px',
+                                fontSize: '14px',
+                                fontWeight: '300',
+                                color: 'hsl(var(--foreground))',
+                                border: '1px solid rgba(255,255,255,0.3)',
+                                outline: 'none'
+                              }}
+                            >
+                              <option value="" disabled style={{ backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--muted-foreground))' }}>
+                                Select Semester
+                              </option>
+                              {semesters.map((sem) => (
+                                <option key={sem} value={sem} style={{ backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}>
+                                  {sem}
+                                </option>
+                              ))}
+                            </select>
+                          </FormControl>
+                        </Select>
+                        <FormMessage style={{ color: '#ff6b6b', fontSize: '12px', marginTop: '4px' }} />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div style={{ marginTop: '20px' }}>
+                  <FormField
+                    control={form.control}
+                    name="pronouns"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel style={{
+                          display: 'block',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          color: 'hsl(var(--foreground))',
+                          marginBottom: '8px'
+                        }}>
+                          Pronouns (Optional)
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="e.g., she/her, he/him, they/them"
+                            style={{
+                              display: 'block',
+                              height: '45px',
+                              width: '100%',
+                              backgroundColor: 'rgba(255,255,255,0.1)',
+                              borderRadius: '3px',
+                              padding: '0 10px',
+                              fontSize: '14px',
+                              fontWeight: '300',
+                              color: 'hsl(var(--foreground))',
+                              border: '1px solid rgba(255,255,255,0.3)',
+                              outline: 'none'
+                            }}
+                            suppressHydrationWarning
+                          />
+                        </FormControl>
+                        <FormMessage style={{ color: '#ff6b6b', fontSize: '12px', marginTop: '4px' }} />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div style={{ marginTop: '20px' }}>
+                  <FormField
+                    control={form.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel style={{
+                          display: 'block',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          color: 'hsl(var(--foreground))',
+                          marginBottom: '8px'
+                        }}>
+                          Password
+                        </FormLabel>
+                        <FormControl>
+                          <PasswordInput
+                            {...field}
+                            placeholder="••••••••"
+                            style={{
+                              display: 'block',
+                              height: '45px',
+                              width: '100%',
+                              backgroundColor: 'rgba(255,255,255,0.1)',
+                              borderRadius: '3px',
+                              padding: '0 10px',
+                              fontSize: '14px',
+                              fontWeight: '300',
+                              color: 'hsl(var(--foreground))',
+                              border: '1px solid rgba(255,255,255,0.3)',
+                              outline: 'none'
+                            }}
+                            suppressHydrationWarning
+                          />
+                        </FormControl>
+                        <FormMessage style={{ color: '#ff6b6b', fontSize: '12px', marginTop: '4px' }} />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div style={{ marginTop: '20px' }}>
+                  <FormField
+                    control={form.control}
+                    name="confirmPassword"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel style={{
+                          display: 'block',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          color: 'hsl(var(--foreground))',
+                          marginBottom: '8px'
+                        }}>
+                          Confirm Password
+                        </FormLabel>
+                        <FormControl>
+                          <PasswordInput
+                            {...field}
+                            placeholder="••••••••"
+                            style={{
+                              display: 'block',
+                              height: '45px',
+                              width: '100%',
+                              backgroundColor: 'rgba(255,255,255,0.1)',
+                              borderRadius: '3px',
+                              padding: '0 10px',
+                              fontSize: '14px',
+                              fontWeight: '300',
+                              color: 'hsl(var(--foreground))',
+                              border: '1px solid rgba(255,255,255,0.3)',
+                              outline: 'none'
+                            }}
+                            suppressHydrationWarning
+                          />
+                        </FormControl>
+                        <FormMessage style={{ color: '#ff6b6b', fontSize: '12px', marginTop: '4px' }} />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  style={{
+                    marginTop: '30px',
+                    width: '100%',
+                    backgroundColor: 'hsl(var(--primary))',
+                    color: 'hsl(var(--primary-foreground))',
+                    padding: '15px 0',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    borderRadius: '5px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    opacity: isLoading ? 0.7 : 1
+                  }}
+                >
+                  {isLoading ? "Registering..." : "Register"}
+                </button>
+
+                <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '14px' }}>
+                  <p style={{ color: 'hsl(var(--foreground))', marginBottom: '10px' }}>
+                    Already have an account?{" "}
+                    <Link href="/login" style={{ color: 'hsl(var(--foreground))', fontWeight: 'bold', textDecoration: 'underline' }}>
+                      Login here
+                    </Link>
+                  </p>
+                </div>
+              </Form>
             </form>
-          </Form>
-          <div className="mt-4 sm:mt-6 text-center text-xs sm:text-sm">
-            <p>
-              Already have an account?{" "}
-              <Link href="/login" className="font-medium text-primary hover:underline">
-                Login here
+          ) : (
+            <div
+              style={{
+                height: '300px',
+                width: '400px',
+                backgroundColor: 'rgba(255,255,255,0.1)',
+                position: 'relative',
+                borderRadius: '10px',
+                backdropFilter: 'blur(15px)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+                padding: '40px 30px',
+                color: 'hsl(var(--foreground))',
+                fontFamily: "'Poppins', sans-serif",
+                zIndex: 10,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                textAlign: 'center'
+              }}
+            >
+              <h3 style={{
+                fontSize: '24px',
+                fontWeight: '500',
+                lineHeight: '32px',
+                marginBottom: '20px',
+                color: 'hsl(var(--muted-foreground))'
+              }}>
+                Registration Disabled
+              </h3>
+              <p style={{
+                fontSize: '16px',
+                lineHeight: '24px',
+                marginBottom: '30px',
+                color: 'hsl(var(--muted-foreground))'
+              }}>
+                Student registration is currently disabled by the administrator. Please contact your faculty or try again later.
+              </p>
+              <Link href="/login" style={{
+                color: 'hsl(var(--primary))',
+                fontWeight: 'bold',
+                textDecoration: 'underline',
+                fontSize: '16px'
+              }}>
+                Go to Login
               </Link>
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
+    </>
   );
 }

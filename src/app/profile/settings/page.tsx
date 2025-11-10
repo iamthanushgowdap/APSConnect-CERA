@@ -9,13 +9,14 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, User } from '@/components/auth-provider';
 import type { UserProfile, EducationEntry, ExperienceEntry, ProjectEntry, SkillEntry, CertificationEntry, AchievementEntry, Semester } from '@/types'; 
-import { Loader2, ShieldCheck, Camera, Trash2, ArrowLeft, UserCog, Bell, PlusCircle, FileDown, Shield, KeyRound, Mail, Briefcase } from 'lucide-react'; 
+import { Loader2, ShieldCheck, Camera, Trash2, ArrowLeft, Bell, PlusCircle, FileDown, Shield, KeyRound, Mail, Briefcase } from 'lucide-react'; 
 import Link from 'next/link';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -36,6 +37,7 @@ const profileSchema = z.object({
   displayName: z.string().min(2, "Name must be at least 2 characters.").optional().or(z.literal('')),
   summary: z.string().max(1000, "Summary too long.").optional().or(z.literal('')),
   phoneNumber: z.string().max(20, "Phone number too long.").optional().or(z.literal('')),
+  address: z.string().max(200, "Address too long.").optional().or(z.literal('')),
   linkedinUrl: z.string().url("Invalid LinkedIn URL.").optional().or(z.literal('')),
   githubUrl: z.string().url("Invalid GitHub URL.").optional().or(z.literal('')),
   portfolioUrl: z.string().url("Invalid Portfolio URL.").optional().or(z.literal('')),
@@ -45,7 +47,7 @@ const profileSchema = z.object({
   placementJobTitle: z.string().max(100, "Job title too long.").optional().or(z.literal('')),
   referralInfo: z.string().max(1000, "Referral information too long.").optional().or(z.literal('')),
   // Resume Sections
-  education: z.array(z.object({ id: z.string(), degree: z.string().min(1, "Degree is required.").min(1, "Degree is required."), institution: z.string().min(1, "Institution is required."), graduationYear: z.string().min(4, "Year is required.").max(4), score: z.string().min(1, "Score/GPA is required."), })).optional(),
+  education: z.array(z.object({ id: z.string(), degree: z.string().min(1, "Degree is required.").min(1, "Degree is required."), institution: z.string().min(1, "Institution is required."), graduationYear: z.string().min(4, "Year is required.").max(4), score: z.string().min(1, "Score/GPA is required."), scoreType: z.enum(['score', 'cgpa']).default('score'), })).optional(),
   experience: z.array(z.object({ id: z.string(), title: z.string().min(1, "Job title is required."), company: z.string().min(1, "Company name is required."), duration: z.string().min(1, "Duration is required."), description: z.string().min(1, "Description is required."), })).optional(),
   projects: z.array(z.object({ id: z.string(), title: z.string().min(1, "Project title is required."), description: z.string().min(1, "Description is required."), link: z.string().url("Invalid link.").optional().or(z.literal('')), })).optional(),
   skills: z.array(z.object({ id: z.string(), name: z.string().min(1, "Skill name is required.") })).optional(),
@@ -95,7 +97,28 @@ export default function ProfileSettingsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | undefined>(undefined);
 
-  const profileForm = useForm<ProfileFormValues>({ resolver: zodResolver(profileSchema), defaultValues: { displayName: "", summary: "", phoneNumber: "", linkedinUrl: "", githubUrl: "", portfolioUrl: "", pronouns: "", education: [], experience: [], projects: [], skills: [], certifications: [], achievements: [], placementCompany: "", placementJobTitle: "", referralInfo: "" } });
+  const goToDashboard = () => {
+    if (!authUser) return;
+
+    // Navigate to role-specific dashboard
+    switch (authUser.role) {
+      case 'admin':
+        router.push('/admin');
+        break;
+      case 'faculty':
+        router.push('/faculty');
+        break;
+      case 'alumni':
+        router.push('/alumni');
+        break;
+      case 'student':
+      default:
+        router.push('/student');
+        break;
+    }
+  };
+
+  const profileForm = useForm<ProfileFormValues>({ resolver: zodResolver(profileSchema), defaultValues: { displayName: "", summary: "", phoneNumber: "", address: "", linkedinUrl: "", githubUrl: "", portfolioUrl: "", pronouns: "", education: [], experience: [], projects: [], skills: [], certifications: [], achievements: [], placementCompany: "", placementJobTitle: "", referralInfo: "" } });
   const passwordForm = useForm<PasswordFormValues>({ resolver: zodResolver(passwordSchema), defaultValues: { oldPassword: "", newPassword: "", confirmNewPassword: "" }});
   const emailForm = useForm<EmailFormValues>({ resolver: zodResolver(emailSchema), defaultValues: { newEmail: "", confirmNewEmail: "" }});
 
@@ -138,7 +161,7 @@ export default function ProfileSettingsPage() {
             if (profile) {
               setUserProfile(profile);
               profileForm.reset({
-                displayName: profile.full_name || "", summary: profile.bio || "", phoneNumber: profile.phone || "",
+                displayName: profile.full_name || "", summary: profile.bio || "", phoneNumber: profile.phone || "", address: profile.address || "",
                 linkedinUrl: profile.linkedin_url || "", githubUrl: profile.github_url || "", portfolioUrl: profile.portfolio_url || "", pronouns: profile.pronouns || "",
                 education: profile.education || [], experience: profile.experience || [], projects: profile.projects || [],
                 skills: profile.skills?.map((skill: string) => ({ id: generateRandomId(), name: skill })) || [], // Convert string[] to SkillEntry[]
@@ -188,33 +211,69 @@ export default function ProfileSettingsPage() {
   
   const removeAvatar = () => {
     setAvatarPreview(undefined);
-    if (fileInputRef.current) fileInputRef.current.value = ""; 
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
 
   async function onProfileSubmit(data: ProfileFormValues) {
+    console.log('🚀 Form submitted with data:', data);
     setIsSaving(true);
+
     if (!userProfile || !authUser) {
+      console.error('❌ Missing userProfile or authUser');
       toast({ title: "Error", description: "User session not found.", variant: "destructive" });
       setIsSaving(false);
       return;
     }
 
-    const updatedProfileData: Partial<UserProfile> = { 
-        full_name: data.displayName || userProfile.full_name, bio: data.summary, phone: data.phoneNumber,
+    const updatedProfileData: Partial<UserProfile> = {
+        full_name: data.displayName || userProfile.full_name, bio: data.summary, phone: data.phoneNumber, address: data.address,
         linkedin_url: data.linkedinUrl, github_url: data.githubUrl, portfolio_url: data.portfolioUrl, pronouns: data.pronouns,
         // Branch and semester are read-only - only admins can change them in database
-        education: data.education, experience: data.experience, projects: data.projects, 
+        education: data.education, experience: data.experience, projects: data.projects,
         skills: data.skills?.map(skill => skill.name) || [], // Convert SkillEntry[] back to string[]
         certifications: data.certifications, achievements: data.achievements, avatar_url: avatarPreview,
         placement_company: data.placementCompany, placement_job_title: data.placementJobTitle, referral_info: data.referralInfo,
     };
-    
+
+    console.log('📝 Prepared update data:', updatedProfileData);
+
     try {
-      await updateUserProfile(authUser.uid, updatedProfileData);
+      console.log('🔄 Calling updateUserProfile...');
+      const updatedProfile = await updateUserProfile(authUser.uid, updatedProfileData);
+      console.log('✅ Profile update successful, returned data:', updatedProfile);
+
+      // Verify the update actually worked by fetching the profile
+      console.log('🔍 Verifying update by fetching profile...');
+      const verificationProfile = await getUserProfile(authUser.uid);
+      console.log('📊 Verification result:', {
+        requestedUpdate: updatedProfileData.full_name,
+        returnedFromUpdate: updatedProfile?.full_name,
+        fetchedAfterUpdate: verificationProfile?.full_name,
+        matches: verificationProfile?.full_name === updatedProfileData.full_name
+      });
+
+      // Update localStorage with the new profile data including avatar
+      if (verificationProfile) {
+        localStorage.setItem(`apsconnect_user_${authUser.uid}`, JSON.stringify(verificationProfile));
+        console.log('💾 Updated localStorage with new profile data');
+
+        // Dispatch a storage event to notify other components (like navbar) of the change
+        if (typeof window !== 'undefined') {
+          const storageEvent = new StorageEvent('storage', {
+            key: `apsconnect_user_${authUser.uid}`,
+            newValue: JSON.stringify(verificationProfile),
+            oldValue: null,
+            storageArea: localStorage
+          });
+          window.dispatchEvent(storageEvent);
+          console.log('📡 Dispatched storage event for avatar update');
+        }
+      }
+
       if (authUser.uid === userProfile.id) {
-          updateUserContext({ 
-            ...authUser, 
+          updateUserContext({
+            ...authUser,
             displayName: updatedProfileData.full_name || authUser.displayName,
             branch: updatedProfileData.branch,
             semester: updatedProfileData.semester as Semester,
@@ -223,6 +282,7 @@ export default function ProfileSettingsPage() {
       }
       toast({ title: "Profile Updated", description: "Your profile details have been saved.", duration: 3000 });
     } catch (error: any) {
+      console.error('❌ Profile update failed:', error);
       toast({ title: "Update Failed", description: error.message || "An unexpected error occurred.", variant: "destructive" });
     } finally {
       setIsSaving(false);
@@ -289,11 +349,387 @@ export default function ProfileSettingsPage() {
   }
 
   const handleGenerateResume = async () => {
-    toast({
-      title: "Feature Coming Soon",
-      description: "Resume generation will be available in a future update.",
-      duration: 3000,
+    if (!userProfile) {
+      toast({
+        title: "Error",
+        description: "Profile data not available.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Show loading
+    const loadingToast = toast({
+      title: "Generating Resume",
+      description: "Creating your professional CV...",
     });
+
+    try {
+      // Get authentication token
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Authentication required');
+      }
+
+      // Generate professional resume HTML
+      const resumeHTML = generateResumeHTML(userProfile);
+
+      // Call server-side PDF generation API
+      const response = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          html: resumeHTML,
+          fileName: `${userProfile.full_name || 'Resume'}_CV.pdf`
+        }),
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to generate PDF';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // Ignore JSON parse errors
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Get PDF blob and download it
+      const pdfBlob = await response.blob();
+      const url = URL.createObjectURL(pdfBlob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${userProfile.full_name || 'Resume'}_CV.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up
+      URL.revokeObjectURL(url);
+
+      loadingToast.dismiss?.();
+
+      toast({
+        title: "Resume Downloaded",
+        description: "Your professional CV has been saved to your downloads folder.",
+        duration: 5000,
+      });
+
+    } catch (error) {
+      loadingToast.dismiss?.();
+      console.error('Error generating resume:', error);
+      toast({
+        title: "Error",
+        description: "Failed to generate resume. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const generateResumeHTML = (profile: UserProfile) => {
+    const formatDescription = (text: string) => {
+      if (!text) return '';
+      const items = text.split(/[\n\r]|•/).map(item => item.trim()).filter(item => item.length > 0);
+      if (items.length === 0) return '';
+      return `<ul style="padding-left: 20px; margin-top: 4px;">${items.map(item => `<li style="margin-bottom: 2px; font-size: 10pt;">${item}</li>`).join('')}</ul>`;
+    };
+
+    const isStudent = profile.role === 'student';
+    const isAlumni = profile.role === 'alumni';
+    const isFaculty = profile.role === 'faculty';
+
+    return `<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${profile.full_name || 'Resume'} - CV</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Times+New+Roman&family=Arial:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+      body {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 32px 80px;
+        position: relative;
+        box-sizing: border-box;
+        font-family: 'Times New Roman', serif;
+        font-size: 11pt;
+        line-height: 1.4;
+        color: #000;
+        background: white;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 24px;
+        border-bottom: 2px solid #2c3e50;
+        padding-bottom: 16px;
+      }
+
+      .header h1 {
+        font-family: Arial, sans-serif;
+        font-size: 20pt;
+        font-weight: 600;
+        margin: 0 0 8px 0;
+        color: #2c3e50;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .contact-info {
+        font-size: 10pt;
+        margin: 8px 0;
+        text-align: center;
+      }
+
+      .contact-info a {
+        color: #2c3e50;
+        text-decoration: none;
+      }
+
+      .section {
+        margin-bottom: 20px;
+      }
+
+      .section h2 {
+        font-family: Arial, sans-serif;
+        font-size: 13pt;
+        font-weight: 600;
+        color: #2c3e50;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin: 16px 0 8px 0;
+        border-bottom: 1px solid #34495e;
+        padding-bottom: 2px;
+      }
+
+      .experience-item, .education-item {
+        margin-bottom: 12px;
+      }
+
+      .position-title, .degree, .project-title {
+        font-weight: 900;
+        font-size: 11pt;
+        margin-bottom: 2px;
+        color: #000000;
+      }
+
+      .organization, .institution {
+        font-style: italic;
+        color: #34495e;
+        margin-bottom: 4px;
+        font-weight: 600;
+      }
+
+      .date {
+        font-size: 10pt;
+        color: #666;
+        float: right;
+        font-weight: normal;
+      }
+
+      .details {
+        margin-left: 16px;
+        margin-top: 4px;
+      }
+
+      .details ul {
+        list-style: disc;
+        padding-left: 20px;
+        margin-top: 4px;
+        font-size: 10pt;
+      }
+
+      .details li {
+        margin-bottom: 2px;
+      }
+
+      li {
+        margin-bottom: 1px;
+      }
+
+      .clearfix::after {
+        content: '';
+        display: table;
+        clear: both;
+      }
+
+      .gpa {
+        font-weight: 900;
+        color: #000000;
+      }
+
+      @media print {
+        /* Hide all non-print elements */
+        .no-print {
+          display: none !important;
+        }
+
+        /* Reset body for print */
+        body {
+          margin: 0;
+          padding: 20px;
+          background: white !important;
+          -webkit-print-color-adjust: exact;
+          color-adjust: exact;
+        }
+
+      /* Page setup for clean PDF */
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        -webkit-print-color-adjust: exact;
+        color-adjust: exact;
+      }
+
+      body {
+        padding: 20mm;
+        box-sizing: border-box;
+      }
+
+        /* Ensure content doesn't get cut off */
+        .header {
+          margin-bottom: 20px;
+          page-break-after: avoid;
+        }
+
+        .section {
+          page-break-inside: avoid;
+        }
+
+        /* Prevent page breaks in the middle of sections */
+        h2 {
+          page-break-after: avoid;
+        }
+
+        .experience-item, .education-item {
+          page-break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>${profile.full_name || 'Name Not Provided'}</h1>
+      <div class="contact-info">
+        ${profile.email || ''} | ${profile.phone || ''} | ${profile.address || ''}<br>
+      </div>
+    </div>
+
+    ${(profile.bio || profile.summary) ? `
+    <div class="section">
+      <h2>Professional Summary</h2>
+      <p style="font-size: 10pt; margin-top: 4px;">${profile.bio || profile.summary}</p>
+    </div>
+    ` : ''}
+
+    ${profile.education && profile.education.length > 0 ? `
+    <div class="section">
+      <h2>Education</h2>
+      ${profile.education.map((edu: any) => `
+        <div class="education-item">
+          <div class="clearfix">
+            <span class="degree">${edu.degree || 'Degree Not Specified'}</span>
+            <span class="date">${edu.graduationYear || 'Year Not Specified'}</span>
+          </div>
+          <div class="institution">${edu.institution || 'Institution Not Specified'}</div>
+          <div><span class="gpa">${edu.scoreType === 'cgpa' ? 'CGPA' : 'Score'}: ${edu.score || 'N/A'}</span></div>
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+
+    ${profile.experience && profile.experience.length > 0 ? `
+    <div class="section">
+      <h2>Experience</h2>
+      ${profile.experience.map((exp: any) => `
+        <div class="experience-item">
+          <div class="clearfix">
+            <span class="position-title">${exp.title || 'Position Not Specified'}</span>
+            <span class="date">${exp.duration || 'Duration Not Specified'}</span>
+          </div>
+          <div class="organization">${exp.company || 'Company Not Specified'}</div>
+          ${exp.description ? `<div class="details">${formatDescription(exp.description)}</div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+
+    ${profile.projects && profile.projects.length > 0 ? `
+    <div class="section">
+      <h2>Projects</h2>
+      ${profile.projects.map((proj: any) => `
+        <div class="experience-item">
+          <div class="clearfix">
+            <span class="project-title">${proj.title || 'Project Title'}</span>
+          </div>
+          ${proj.description ? `<div class="details">${formatDescription(proj.description)}</div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+
+    ${profile.skills && profile.skills.length > 0 ? `
+    <div class="section">
+      <h2>Technical Skills</h2>
+      <p style="font-size: 10pt; margin-top: 4px;"><strong>Skills:</strong> ${profile.skills.join(', ')}</p>
+    </div>
+    ` : ''}
+
+    ${profile.certifications && profile.certifications.length > 0 ? `
+    <div class="section">
+      <h2>Certifications</h2>
+      <ul style="font-size: 10pt; padding-left: 20px;">
+        ${profile.certifications.map((cert: any) => `
+          <li style="margin-bottom: 2px;">
+            <strong>${cert.name || 'Certification Name'}</strong>${cert.issuingBody ? `, ${cert.issuingBody}` : ''}${cert.year ? ` (${cert.year})` : ''}
+          </li>
+        `).join('')}
+      </ul>
+    </div>
+    ` : ''}
+
+    ${profile.achievements && profile.achievements.length > 0 ? `
+    <div class="section">
+      <h2>Achievements & Honors</h2>
+      <ul style="font-size: 10pt; padding-left: 20px;">
+        ${profile.achievements.map((achievement: any) => `
+          <li style="margin-bottom: 2px;">${achievement.description || achievement}</li>
+        `).join('')}
+      </ul>
+    </div>
+    ` : ''}
+
+    ${isFaculty ? `
+    <div class="section">
+      <h2>Faculty Information</h2>
+      ${profile.faculty_title ? `<p style="font-size: 10pt;"><strong>Title:</strong> ${profile.faculty_title}</p>` : ''}
+      ${profile.assigned_branches && profile.assigned_branches.length > 0 ? `<p style="font-size: 10pt;"><strong>Assigned Branches:</strong> ${profile.assigned_branches.join(', ')}</p>` : ''}
+      ${profile.assigned_semesters && profile.assigned_semesters.length > 0 ? `<p style="font-size: 10pt;"><strong>Assigned Semesters:</strong> ${profile.assigned_semesters.join(', ')}</p>` : ''}
+    </div>
+    ` : ''}
+
+    ${isAlumni ? `
+    <div class="section">
+      <h2>Alumni Information</h2>
+      ${profile.placement_company ? `<p style="font-size: 10pt;"><strong>Company:</strong> ${profile.placement_company}</p>` : ''}
+      ${profile.placement_job_title ? `<p style="font-size: 10pt;"><strong>Position:</strong> ${profile.placement_job_title}</p>` : ''}
+      ${profile.referral_info ? `<p style="font-size: 10pt;"><strong>Referral Info:</strong> ${profile.referral_info}</p>` : ''}
+    </div>
+    ` : ''}
+
+  `;
   };
 
   if (pageLoading || authLoading) return <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-[calc(100vh-10rem)]"><SimpleRotatingSpinner className="h-12 w-12 text-primary" /></div>;
@@ -304,7 +740,7 @@ export default function ProfileSettingsPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="mb-6"><Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back"><ArrowLeft className="h-4 w-4" /></Button></div>
+      <div className="mb-6"><Button variant="outline" size="icon" onClick={goToDashboard} aria-label="Go back"><ArrowLeft className="h-4 w-4" /></Button></div>
       <Card className="w-full max-w-4xl mx-auto shadow-xl">
         <CardHeader><CardTitle className="text-2xl font-bold tracking-tight text-primary">Profile & Resume Settings</CardTitle><CardDescription>Manage your public profile and account security.</CardDescription></CardHeader>
         <CardContent>
@@ -378,6 +814,7 @@ export default function ProfileSettingsPage() {
                                           </>
                                         )}
                                         <FormField control={profileForm.control} name="phoneNumber" render={({ field }) => (<FormItem><FormLabel>Phone Number</FormLabel><FormControl><Input {...field} type="tel" /></FormControl><FormMessage /></FormItem>)} />
+                                        <FormField control={profileForm.control} name="address" render={({ field }) => (<FormItem><FormLabel>Address</FormLabel><FormControl><Input {...field} placeholder="City, State/Country" /></FormControl><FormMessage /></FormItem>)} />
                                         <FormField control={profileForm.control} name="linkedinUrl" render={({ field }) => (<FormItem><FormLabel>LinkedIn URL</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
                                         <FormField control={profileForm.control} name="githubUrl" render={({ field }) => (<FormItem><FormLabel>GitHub URL</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
                                         <FormField control={profileForm.control} name="portfolioUrl" render={({ field }) => (<FormItem><FormLabel>Portfolio/Website URL</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
@@ -386,7 +823,7 @@ export default function ProfileSettingsPage() {
                                 </Card>
                                 
                                 {(isStudent || isAlumni) && (<>
-                                    <ResumeSection title="Education" fields={educationFields} onRemove={removeEducation} onAdd={() => appendEducation({ id: generateRandomId(), degree: '', institution: '', graduationYear: '', score: '' })} renderFields={(field, index) => (<> <FormField control={profileForm.control} name={`education.${index}.degree`} render={({ field }) => (<FormItem><FormLabel>Degree</FormLabel><FormControl><Input {...field} placeholder="e.g., B.E. in Computer Science" /></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`education.${index}.institution`} render={({ field }) => (<FormItem><FormLabel>Institution</FormLabel><FormControl><Input {...field} placeholder="e.g., APS College of Engineering" /></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`education.${index}.graduationYear`} render={({ field }) => (<FormItem><FormLabel>Graduation Year</FormLabel><FormControl><Input {...field} placeholder="e.g., 2025" /></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`education.${index}.score`} render={({ field }) => (<FormItem><FormLabel>Score/GPA</FormLabel><FormControl><Input {...field} placeholder="e.g., 8.5 CGPA" /></FormControl><FormMessage /></FormItem>)} /> </>)} />
+                                    <ResumeSection title="Education" fields={educationFields} onRemove={removeEducation} onAdd={() => appendEducation({ id: generateRandomId(), degree: '', institution: '', graduationYear: '', score: '', scoreType: 'score' })} renderFields={(field, index) => (<> <FormField control={profileForm.control} name={`education.${index}.degree`} render={({ field }) => (<FormItem><FormLabel>Degree</FormLabel><FormControl><Input {...field} placeholder="e.g., B.E. in Computer Science" /></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`education.${index}.institution`} render={({ field }) => (<FormItem><FormLabel>Institution</FormLabel><FormControl><Input {...field} placeholder="e.g., APS College of Engineering" /></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`education.${index}.graduationYear`} render={({ field }) => (<FormItem><FormLabel>Graduation Year</FormLabel><FormControl><Input {...field} placeholder="e.g., 2025" /></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`education.${index}.scoreType`} render={({ field }) => (<FormItem><FormLabel>Score Type</FormLabel><FormControl><div className="flex gap-4"><label className="flex items-center gap-2"><input type="radio" {...field} value="score" checked={field.value === 'score'} /> Score (%)</label><label className="flex items-center gap-2"><input type="radio" {...field} value="cgpa" checked={field.value === 'cgpa'} /> CGPA</label></div></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`education.${index}.score`} render={({ field }) => (<FormItem><FormLabel>Score/GPA</FormLabel><FormControl><Input {...field} placeholder="e.g., 85 or 8.5" /></FormControl><FormMessage /></FormItem>)} /> </>)} />
                                     <ResumeSection title="Experience" fields={experienceFields} onRemove={removeExperience} onAdd={() => appendExperience({ id: generateRandomId(), title: '', company: '', duration: '', description: '' })} renderFields={(field, index) => (<> <FormField control={profileForm.control} name={`experience.${index}.title`} render={({ field }) => (<FormItem><FormLabel>Job Title</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`experience.${index}.company`} render={({ field }) => (<FormItem><FormLabel>Company</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`experience.${index}.duration`} render={({ field }) => (<FormItem><FormLabel>Duration</FormLabel><FormControl><Input {...field} placeholder="e.g., Jun 2023 - Aug 2023" /></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`experience.${index}.description`} render={({ field }) => (<FormItem><FormLabel>Description</FormLabel><FormControl><Textarea {...field} rows={3} /></FormControl><FormMessage /></FormItem>)} /> </>)} />
                                     <ResumeSection title="Projects" fields={projectFields} onRemove={removeProject} onAdd={() => appendProject({ id: generateRandomId(), title: '', description: '', link: '' })} renderFields={(field, index) => (<> <FormField control={profileForm.control} name={`projects.${index}.title`} render={({ field }) => (<FormItem><FormLabel>Project Title</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`projects.${index}.description`} render={({ field }) => (<FormItem><FormLabel>Description</FormLabel><FormControl><Textarea {...field} rows={3} /></FormControl><FormMessage /></FormItem>)} /> <FormField control={profileForm.control} name={`projects.${index}.link`} render={({ field }) => (<FormItem><FormLabel>Project Link (Optional)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} /> </>)} />
                                     <ResumeSection title="Skills" fields={skillFields} onRemove={removeSkill} onAdd={() => appendSkill({ id: generateRandomId(), name: '' })} renderFields={(field, index) => ( <FormField control={profileForm.control} name={`skills.${index}.name`} render={({ field }) => (<FormItem className="col-span-full"><FormLabel>Skill</FormLabel><FormControl><Input {...field} placeholder="e.g., React, Python, UI/UX Design" /></FormControl><FormMessage /></FormItem>)} /> )} />
@@ -404,26 +841,13 @@ export default function ProfileSettingsPage() {
                 <AccordionItem value="item-2">
                     <AccordionTrigger className="text-xl font-semibold">Security</AccordionTrigger>
                     <AccordionContent className="pt-4 space-y-8">
-                        {userProfile.role !== 'student' && (
-                            <Card className="p-6">
-                                <CardHeader className="p-0 pb-4"><CardTitle className="text-lg flex items-center gap-2"><Mail/>Change Email</CardTitle></CardHeader>
-                                <Form {...emailForm}>
-                                    <form onSubmit={emailForm.handleSubmit(onEmailSubmit)} className="space-y-4">
-                                        <FormItem><FormLabel>Current Email</FormLabel><FormControl><Input value={userProfile.email} disabled /></FormControl></FormItem>
-                                        <FormField control={emailForm.control} name="newEmail" render={({ field }) => (<FormItem><FormLabel>New Email</FormLabel><FormControl><Input {...field} type="email" placeholder="new.email@example.com" /></FormControl><FormMessage /></FormItem>)} />
-                                        <FormField control={emailForm.control} name="confirmNewEmail" render={({ field }) => (<FormItem><FormLabel>Confirm New Email</FormLabel><FormControl><Input {...field} type="email" placeholder="new.email@example.com" /></FormControl><FormMessage /></FormItem>)} />
-                                        <Button type="submit" disabled={isSaving}>{isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Change Email"}</Button>
-                                    </form>
-                                </Form>
-                            </Card>
-                        )}
                         <Card className="p-6">
                             <CardHeader className="p-0 pb-4"><CardTitle className="text-lg flex items-center gap-2"><KeyRound/>Change Password</CardTitle></CardHeader>
-                             <Form {...passwordForm}>
+                            <Form {...passwordForm}>
                                 <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
-                                    <FormField control={passwordForm.control} name="oldPassword" render={({ field }) => (<FormItem><FormLabel>Current Password</FormLabel><FormControl><Input {...field} type="password" /></FormControl><FormMessage /></FormItem>)} />
-                                    <FormField control={passwordForm.control} name="newPassword" render={({ field }) => (<FormItem><FormLabel>New Password</FormLabel><FormControl><Input {...field} type="password" /></FormControl><FormMessage /></FormItem>)} />
-                                    <FormField control={passwordForm.control} name="confirmNewPassword" render={({ field }) => (<FormItem><FormLabel>Confirm New Password</FormLabel><FormControl><Input {...field} type="password" /></FormControl><FormMessage /></FormItem>)} />
+                                    <FormField control={passwordForm.control} name="oldPassword" render={({ field }) => (<FormItem><FormLabel>Current Password</FormLabel><FormControl><PasswordInput {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                    <FormField control={passwordForm.control} name="newPassword" render={({ field }) => (<FormItem><FormLabel>New Password</FormLabel><FormControl><PasswordInput {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                    <FormField control={passwordForm.control} name="confirmNewPassword" render={({ field }) => (<FormItem><FormLabel>Confirm New Password</FormLabel><FormControl><PasswordInput {...field} /></FormControl><FormMessage /></FormItem>)} />
                                     <Button type="submit" disabled={isSaving}>{isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Change Password"}</Button>
                                 </form>
                             </Form>

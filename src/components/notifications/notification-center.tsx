@@ -1,10 +1,20 @@
-
 "use client";
 
-import React, { useState, useEffect } from 'react';
+// Utility function for clean error logging
+const logError = (message: string, error: any) => {
+  if (error?.message || error?.code) {
+    console.warn(`${message}:`, error.code || error.message);
+  } else if (Object.keys(error || {}).length > 0) {
+    console.warn(`${message}:`, error);
+  }
+  // Don't log completely empty error objects
+};
+
+import React, { useState, useEffect, useCallback } from 'react';
 import type { Notification } from '@/types';
 import { NOTIFICATION_STORAGE_KEY } from '@/types';
-import { User } from '@/components/auth-provider';
+import type { User } from '@/components/auth-provider';
+import { supabase } from '@/lib/supabase';
 import {
   SheetContent,
   SheetHeader,
@@ -38,33 +48,218 @@ export function NotificationCenter({ user, onClose }: NotificationCenterProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const router = useRouter();
 
-  useEffect(() => {
-    if (typeof window !== 'undefined' && user) {
-      const allNotificationsStr = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
-      const allNotifications: Notification[] = allNotificationsStr ? JSON.parse(allNotificationsStr) : [];
-      const userNotifications = allNotifications
-        .filter(n => n.userId === user.uid)
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setNotifications(userNotifications);
+  const loadNotifications = useCallback(async () => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
+
+    try {
+      // Read all notifications from database for display
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.uid)
+        .order('created_at', { ascending: false })
+        .limit(50); // Limit for performance
+
+      if (error) {
+        // Only log meaningful errors, not empty objects
+        logError('❌ Notification fetch failed', error);
+
+        // Try to load from localStorage as fallback
+        try {
+          const localNotifications = JSON.parse(localStorage.getItem('apsconnect_notifications') || '[]');
+          const userLocalNotifications = localNotifications.filter((n: any) => n.user_id === user.uid);
+
+          // Convert localStorage format to component format
+          const formattedLocalNotifications = userLocalNotifications.map((notif: any) => ({
+            id: notif.id,
+            userId: notif.user_id,
+            type: notif.type,
+            title: notif.title,
+            message: notif.message,
+            href: notif.href,
+            createdAt: notif.created_at,
+            isRead: notif.isRead || notif.read || false
+          }));
+
+          setNotifications(formattedLocalNotifications);
+        } catch (localStorageError) {
+          console.error('❌ localStorage fallback also failed:', localStorageError);
+          setNotifications([]);
+        }
+      } else {
+        // Convert database format to component format
+        const formattedNotifications = (data || []).map(dbNotif => ({
+          id: dbNotif.id,
+          userId: dbNotif.user_id,
+          type: dbNotif.type,
+          title: dbNotif.title,
+          message: dbNotif.message,
+          href: dbNotif.href,
+          createdAt: dbNotif.created_at,
+          isRead: dbNotif.read || false
+        }));
+
+        // Merge with localStorage notifications if any
+        try {
+          const localNotifications = JSON.parse(localStorage.getItem('apsconnect_notifications') || '[]');
+          const userLocalNotifications = localNotifications.filter((n: any) => n.user_id === user.uid);
+
+          if (userLocalNotifications.length > 0) {
+            const formattedLocalNotifications = userLocalNotifications.map((notif: any) => ({
+              id: notif.id,
+              userId: notif.user_id,
+              type: notif.type,
+              title: notif.title,
+              message: notif.message,
+              href: notif.href,
+              createdAt: notif.created_at,
+              isRead: notif.isRead || notif.read || false
+            }));
+
+            // Combine database and localStorage notifications, avoiding duplicates
+            const combinedNotifications = [...formattedNotifications];
+            formattedLocalNotifications.forEach((localNotif: any) => {
+              if (!combinedNotifications.find(dbNotif => dbNotif.id === localNotif.id)) {
+                combinedNotifications.push(localNotif);
+              }
+            });
+
+            setNotifications(combinedNotifications);
+          } else {
+            setNotifications(formattedNotifications);
+          }
+        } catch (mergeError) {
+          console.error('❌ Error merging localStorage notifications:', mergeError);
+          setNotifications(formattedNotifications);
+        }
+      }
+    } catch (error) {
+      logError('❌ Notification center exception', error);
+      setNotifications([]);
     }
   }, [user]);
-  
-  const clearAllNotifications = () => {
-      if (typeof window === 'undefined' || !user) return;
-      const allNotificationsStr = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
-      let allNotifications: Notification[] = allNotificationsStr ? JSON.parse(allNotificationsStr) : [];
-      allNotifications = allNotifications.filter(n => n.userId !== user.uid);
-      localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(allNotifications));
-      setNotifications([]);
+
+  useEffect(() => {
+    loadNotifications();
+
+    // Listen for notification updates
+    const handleNotificationsUpdate = () => {
+      loadNotifications();
+    };
+
+    // Set up real-time subscription for new notifications
+    let notificationChannel: any = null;
+    if (user) {
+      notificationChannel = supabase
+        .channel(`notification_center_${user.uid}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.uid}`
+          },
+          (payload) => {
+            if (payload.new) {
+              // Refresh notifications from database
+              loadNotifications();
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.uid}`
+          },
+          (payload) => {
+            if (payload.new) {
+              // Refresh notifications when they're marked as read
+              loadNotifications();
+            }
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            // Subscription successful - no need to log
+          }
+        });
+    }
+
+    window.addEventListener('notificationsUpdated', handleNotificationsUpdate);
+
+    return () => {
+      window.removeEventListener('notificationsUpdated', handleNotificationsUpdate);
+      if (notificationChannel) {
+        supabase.removeChannel(notificationChannel);
+      }
+    };
+  }, [user, loadNotifications]);
+
+  const clearAllNotifications = async () => {
+    if (!user) return;
+
+    try {
+      // Permanently delete all notifications for this user
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', user.uid);
+
+      if (error) {
+        logError('Error clearing notifications', error);
+      } else {
+        // Clear the local state
+        setNotifications([]);
+        // Dispatch event to update navbar badge count
+        window.dispatchEvent(new CustomEvent('notificationsUpdated'));
+      }
+    } catch (error) {
+      logError('Error in clearAllNotifications', error);
+    }
   };
 
   const handleNotificationClick = (notification: Notification) => {
     if (notification.href) {
-        router.push(notification.href);
-        onClose();
+      // Mark as read in database first
+      supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', notification.id)
+        .then(({ error: dbError }) => {
+          if (dbError) {
+            console.error('Error marking notification as read in database:', dbError);
+          }
+
+          // Also mark as read in localStorage
+          try {
+            const localNotifications = JSON.parse(localStorage.getItem('apsconnect_notifications') || '[]');
+            const updatedLocalNotifications = localNotifications.map((n: any) => {
+              if (n.id === notification.id) {
+                return { ...n, isRead: true, read: true };
+              }
+              return n;
+            });
+            localStorage.setItem('apsconnect_notifications', JSON.stringify(updatedLocalNotifications));
+          } catch (localStorageError) {
+            console.error('Error updating localStorage notification:', localStorageError);
+          }
+
+          // Navigate regardless of errors
+          router.push(notification.href);
+          onClose();
+
+          // Dispatch event to update navbar badge count
+          window.dispatchEvent(new CustomEvent('notificationsUpdated'));
+        });
     }
   };
-
 
   return (
     <SheetContent className="flex flex-col">

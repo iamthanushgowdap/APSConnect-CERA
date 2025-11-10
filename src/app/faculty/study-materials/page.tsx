@@ -5,8 +5,10 @@ import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import { StudyMaterialForm } from '@/components/study-materials/study-material-form';
 import type { StudyMaterial, Branch, Semester } from '@/types';
-import { STUDY_MATERIAL_STORAGE_KEY, semesters } from '@/types';
+import { semesters } from '@/types';
+import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCnCardDescription } from '@/components/ui/card';
+import ParticleBackground from "@/components/ui/particle-background";
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -50,31 +52,49 @@ export default function FacultyStudyMaterialsPage() {
   const [searchTerm, setSearchTerm] = useState('');
 
 
-  const fetchMaterials = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      const storedMaterials = localStorage.getItem(STUDY_MATERIAL_STORAGE_KEY);
-      let materials: StudyMaterial[] = storedMaterials ? JSON.parse(storedMaterials) : [];
-      if (memoizedFacultyAssignedBranches.length > 0) {
-        materials = materials.filter(m => memoizedFacultyAssignedBranches.includes(m.branch));
+  const fetchMaterials = useCallback(async () => {
+    try {
+      if (memoizedFacultyAssignedBranches.length === 0) return;
+
+      const { data: materials, error } = await supabase
+        .from('study_materials')
+        .select('*')
+        .in('branch', memoizedFacultyAssignedBranches)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching materials:', error);
+        setAllMaterials([]);
+        toast({
+          title: "Error",
+          description: "Failed to load study materials.",
+          variant: "destructive"
+        });
       } else {
-        materials = []; 
+        setAllMaterials(materials || []);
       }
-      setAllMaterials(materials.sort((a,b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()));
+    } catch (error) {
+      console.error('Error fetching materials:', error);
+      setAllMaterials([]);
     }
-  }, [memoizedFacultyAssignedBranches]);
+  }, [memoizedFacultyAssignedBranches, toast]);
 
   useEffect(() => {
     if (!authLoading) {
       if (!user || user.role !== 'faculty') {
         router.push(user ? '/dashboard' : '/login');
       } else {
-         if (memoizedFacultyAssignedBranches.length > 0 && filterBranch === 'all') {
-            setFilterBranch(memoizedFacultyAssignedBranches[0]);
-        }
         setPageLoading(false);
       }
     }
-  }, [user, authLoading, router, memoizedFacultyAssignedBranches, filterBranch]);
+  }, [user, authLoading, router]);
+
+  // Separate effect for filter initialization
+  useEffect(() => {
+    if (memoizedFacultyAssignedBranches.length > 0 && filterBranch === 'all') {
+      setFilterBranch(memoizedFacultyAssignedBranches[0]);
+    }
+  }, [memoizedFacultyAssignedBranches, filterBranch]);
 
   useEffect(() => {
     if (!pageLoading && user && user.role === 'faculty') {
@@ -95,7 +115,7 @@ export default function FacultyStudyMaterialsPage() {
       currentMaterials = currentMaterials.filter(m => 
         m.title.toLowerCase().includes(termLower) ||
         m.description?.toLowerCase().includes(termLower) ||
-        m.uploadedByDisplayName.toLowerCase().includes(termLower) ||
+        m.uploaded_by_display_name.toLowerCase().includes(termLower) ||
         m.attachments.some(att => att.name.toLowerCase().includes(termLower))
       );
     }
@@ -103,34 +123,20 @@ export default function FacultyStudyMaterialsPage() {
   }, [allMaterials, filterBranch, filterSemester, searchTerm]);
 
 
-  const handleFormSubmitSuccess = (material: StudyMaterial) => {
-    const existingIndex = allMaterials.findIndex(m => m.id === material.id);
-    let updatedFullList;
-    if (existingIndex > -1) {
-      updatedFullList = [...allMaterials];
-      updatedFullList[existingIndex] = material;
-    } else {
-      updatedFullList = [material, ...allMaterials];
-    }
-    setAllMaterials(updatedFullList);
-
-    if (typeof window !== 'undefined') {
-        const globalMaterialsStr = localStorage.getItem(STUDY_MATERIAL_STORAGE_KEY);
-        let globalMaterials: StudyMaterial[] = globalMaterialsStr ? JSON.parse(globalMaterialsStr) : [];
-        const globalIndex = globalMaterials.findIndex(m => m.id === material.id);
-        if (globalIndex > -1) {
-            globalMaterials[globalIndex] = material;
-        } else {
-            globalMaterials.push(material);
-        }
-        localStorage.setItem(STUDY_MATERIAL_STORAGE_KEY, JSON.stringify(globalMaterials));
-    }
+  const handleFormSubmitSuccess = async (material: StudyMaterial) => {
+    // Refresh the materials list from Supabase
+    await fetchMaterials();
     setIsFormDialogOpen(false);
     setEditingMaterial(null);
+    toast({
+      title: "Success",
+      description: `Material "${material.title}" ${editingMaterial ? 'updated' : 'created'} successfully.`,
+      duration: 3000
+    });
   };
 
   const openEditDialog = (material: StudyMaterial) => {
-    if (material.uploadedByUid === user?.uid || memoizedFacultyAssignedBranches.includes(material.branch)) {
+    if (material.uploaded_by === user?.uid || memoizedFacultyAssignedBranches.includes(material.branch)) {
         setEditingMaterial(material);
         setIsFormDialogOpen(true);
     } else {
@@ -144,26 +150,47 @@ export default function FacultyStudyMaterialsPage() {
   };
 
   const confirmDeleteMaterial = (material: StudyMaterial) => {
-     if (material.uploadedByUid === user?.uid || memoizedFacultyAssignedBranches.includes(material.branch)) {
+     if (material.uploaded_by === user?.uid || memoizedFacultyAssignedBranches.includes(material.branch)) {
         setMaterialToDelete(material);
     } else {
         toast({ title: "Unauthorized", description: "You can only delete materials for your assigned branches or those you uploaded.", variant: "destructive"});
     }
   };
 
-  const handleDeleteMaterial = () => {
+  const handleDeleteMaterial = async () => {
     if (!materialToDelete) return;
-    const updatedMaterials = allMaterials.filter(m => m.id !== materialToDelete.id);
-    setAllMaterials(updatedMaterials);
-    
-    if (typeof window !== 'undefined') {
-        const globalMaterialsStr = localStorage.getItem(STUDY_MATERIAL_STORAGE_KEY);
-        let globalMaterials: StudyMaterial[] = globalMaterialsStr ? JSON.parse(globalMaterialsStr) : [];
-        globalMaterials = globalMaterials.filter(m => m.id !== materialToDelete.id);
-        localStorage.setItem(STUDY_MATERIAL_STORAGE_KEY, JSON.stringify(globalMaterials));
+
+    try {
+      const { error } = await supabase
+        .from('study_materials')
+        .delete()
+        .eq('id', materialToDelete.id);
+
+      if (error) {
+        console.error('Error deleting material:', error);
+        toast({
+          title: "Error",
+          description: "Failed to delete the material.",
+          variant: "destructive"
+        });
+      } else {
+        // Refresh the materials list
+        await fetchMaterials();
+        toast({
+          title: "Success",
+          description: `Material "${materialToDelete.title}" deleted.`,
+          duration: 3000
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting material:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete the material.",
+        variant: "destructive"
+      });
     }
 
-    toast({ title: "Success", description: `Material "${materialToDelete.title}" deleted.`, duration: 3000 });
     setMaterialToDelete(null);
   };
   
@@ -224,8 +251,11 @@ export default function FacultyStudyMaterialsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4 relative z-10">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center">
             <BookOpen className="mr-3 h-7 w-7" /> Study Material Management
         </h1>
@@ -316,13 +346,13 @@ export default function FacultyStudyMaterialsPage() {
                           </div>
                         ))}
                       </TableCell>
-                      <TableCell>{material.uploadedByDisplayName}</TableCell>
-                      <TableCell>{format(new Date(material.uploadedAt), "PPp")}</TableCell>
+                      <TableCell>{material.uploaded_by_display_name}</TableCell>
+                      <TableCell>{format(new Date(material.created_at), "PPp")}</TableCell>
                       <TableCell className="text-right space-x-2">
-                          <Button variant="outline" size="sm" onClick={() => openEditDialog(material)} disabled={material.uploadedByUid !== user?.uid && !memoizedFacultyAssignedBranches.includes(material.branch)} aria-label={`Edit material ${material.title}`}>
+                          <Button variant="outline" size="sm" onClick={() => openEditDialog(material)} disabled={material.uploaded_by !== user?.uid && !memoizedFacultyAssignedBranches.includes(material.branch)} aria-label={`Edit material ${material.title}`}>
                               <Edit3 className="h-3 w-3 mr-1 sm:mr-2" /> <span className="hidden sm:inline">Edit</span>
                           </Button>
-                          <Button variant="destructive" size="sm" onClick={() => confirmDeleteMaterial(material)} disabled={material.uploadedByUid !== user?.uid && !memoizedFacultyAssignedBranches.includes(material.branch)} aria-label={`Delete material ${material.title}`}>
+                          <Button variant="destructive" size="sm" onClick={() => confirmDeleteMaterial(material)} disabled={material.uploaded_by !== user?.uid && !memoizedFacultyAssignedBranches.includes(material.branch)} aria-label={`Delete material ${material.title}`}>
                               <Trash2 className="h-3 w-3 mr-1 sm:mr-2" /> <span className="hidden sm:inline">Delete</span>
                           </Button>
                       </TableCell>
@@ -346,7 +376,7 @@ export default function FacultyStudyMaterialsPage() {
                     <StudyMaterialForm
                         onSubmitSuccess={handleFormSubmitSuccess}
                         initialData={editingMaterial || undefined}
-                        availableBranches={managedBranches}
+                        availableBranches={memoizedFacultyAssignedBranches}
                         isLoading={formSubmitting}
                         setIsLoading={setFormSubmitting}
                     />

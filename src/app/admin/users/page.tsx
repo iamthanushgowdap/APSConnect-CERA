@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth, User } from "@/components/auth-provider";
+import ParticleBackground from "@/components/ui/particle-background";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,6 +19,25 @@ export default function UserManagementPage() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [actor, setActor] = useState<User | null>(null);
+
+  const goToDashboard = () => {
+    if (!user) return;
+    
+    // Navigate to role-specific dashboard
+    switch (user.role) {
+      case 'admin':
+        router.push('/admin');
+        break;
+      case 'faculty':
+        router.push('/faculty');
+        break;
+      case 'student':
+      case 'alumni':
+      default:
+        router.push('/student');
+        break;
+    }
+  };
 
   useEffect(() => {
     if (!authLoading) {
@@ -61,8 +81,11 @@ export default function UserManagementPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="mb-8 flex justify-between items-center">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative z-10">
         <div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center">
             {actor.role === 'admin' ? <Users className="mr-3 h-7 w-7" /> : <Users className="mr-3 h-7 w-7" />}
@@ -74,7 +97,7 @@ export default function UserManagementPage() {
                 : "View and manage student accounts for your assigned branches."}
             </p>
         </div>
-        <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back">
+        <Button variant="outline" size="icon" onClick={goToDashboard} aria-label="Go back">
             <ArrowLeft className="h-5 w-5" />
         </Button>
       </div>

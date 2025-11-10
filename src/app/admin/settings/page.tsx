@@ -11,84 +11,135 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { ShieldCheck, Settings, UploadCloud, Mail, Users, Tool, Globe, GraduationCap } from 'lucide-react';
+import { ShieldCheck, Settings, UploadCloud, Mail, Users, Globe, GraduationCap } from 'lucide-react';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/lib/supabase';
 
 // Mock storage key for these new settings
 const SITE_SETTINGS_STORAGE_KEY = 'apsconnect_site_settings_v1';
 
 interface SiteSettingsData {
-  collegeLogoUrl?: string;
-  contactEmail?: string;
-  enableStudentRegistration?: boolean;
-  maintenanceMode?: boolean;
-  maintenanceMessage?: string;
-  socialFacebook?: string;
-  socialTwitter?: string;
-  socialLinkedIn?: string;
-  socialInstagram?: string;
-  socialGithub?: string; // Added Github
-  enableAlumniTransition?: boolean; // New setting
+  id?: string;
+  collegename?: string;
+  collegelogourl?: string;
+  contactemail?: string;
+  socialfacebook?: string;
+  socialtwitter?: string;
+  sociallinkedin?: string;
+  socialinstagram?: string;
+  socialgithub?: string;
+  enablealumnitransition?: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
-const defaultSiteSettings: SiteSettingsData = {
-  collegeLogoUrl: '',
-  contactEmail: 'info@apsconnect.example.com',
-  enableStudentRegistration: true,
-  maintenanceMode: false,
-  maintenanceMessage: 'APSConnect is currently undergoing scheduled maintenance. We will be back shortly. Thank you for your patience.',
-  socialFacebook: '',
-  socialTwitter: '',
-  socialLinkedIn: '',
-  socialInstagram: '',
-  socialGithub: '', // Added Github
-  enableAlumniTransition: false, // Default to off
+const defaultSiteSettings: Omit<SiteSettingsData, 'id' | 'created_at' | 'updated_at'> = {
+  collegename: 'APS College',
+  collegelogourl: '',
+  contactemail: 'info@apsconnect.example.com',
+  socialfacebook: '',
+  socialtwitter: '',
+  sociallinkedin: '',
+  socialinstagram: '',
+  socialgithub: '',
+  enablealumnitransition: false,
 };
-
 
 export default function AdminSettingsPage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   const [pageLoading, setPageLoading] = useState(true);
-  const [settings, setSettings] = useState<SiteSettingsData>(defaultSiteSettings);
+  const [settings, setSettings] = useState<Omit<SiteSettingsData, 'id' | 'created_at' | 'updated_at'>>(defaultSiteSettings);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!authLoading) {
       if (!user || user.role !== 'admin') {
         router.push(user ? '/dashboard' : '/login');
-        return; // Ensure no further execution if redirecting
+        return;
       }
-      // Load settings from localStorage
-      if (typeof window !== 'undefined') {
-        const storedSettings = localStorage.getItem(SITE_SETTINGS_STORAGE_KEY);
-        if (storedSettings) {
-          try {
-            // Merge stored settings with defaults to handle new properties
-            setSettings({ ...defaultSiteSettings, ...JSON.parse(storedSettings) });
-          } catch (e) {
-            console.error("Failed to parse site settings, using defaults.", e);
-            setSettings(defaultSiteSettings);
-          }
-        } else {
-          setSettings(defaultSiteSettings);
-        }
-      }
-      setPageLoading(false);
+      loadSettings();
     }
   }, [user, authLoading, router]);
+
+  const loadSettings = async () => {
+    try {
+      // Try to load from Supabase first
+      const { data, error } = await supabase
+        .from('site_settings')
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error('Error loading from Supabase:', error);
+        // Fall back to localStorage
+        if (typeof window !== 'undefined') {
+          const storedSettings = localStorage.getItem(SITE_SETTINGS_STORAGE_KEY);
+          if (storedSettings) {
+            try {
+              const localSettings = JSON.parse(storedSettings);
+              setSettings({ ...defaultSiteSettings, ...localSettings });
+            } catch (e) {
+              console.error("Failed to parse localStorage settings:", e);
+              setSettings(defaultSiteSettings);
+            }
+          } else {
+            setSettings(defaultSiteSettings);
+          }
+        }
+      } else if (data) {
+        // Use Supabase data, merging with defaults for any missing fields
+        setSettings({ ...defaultSiteSettings, ...data });
+      } else {
+        // No data found, use defaults
+        setSettings(defaultSiteSettings);
+      }
+    } catch (error) {
+      console.error('Error in loadSettings:', error);
+      setSettings(defaultSiteSettings);
+    } finally {
+      setPageLoading(false);
+    }
+  };
+
+  const saveToSupabase = async (settingsData: Omit<SiteSettingsData, 'id' | 'created_at' | 'updated_at'>) => {
+    try {
+      const record = {
+        ...settingsData,
+        updated_at: new Date().toISOString(),
+      };
+
+      // Update the single site_settings record (id is fixed UUID)
+      const { data, error } = await supabase
+        .from('site_settings')
+        .update(record)
+        .eq('id', '00000000-0000-0000-0000-000000000000')
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error saving to Supabase:', error);
+        throw error;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error in saveToSupabase:', error);
+      throw error;
+    }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setSettings(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSwitchChange = (name: keyof SiteSettingsData, checked: boolean) => {
+  const handleSwitchChange = (name: keyof Omit<SiteSettingsData, 'id' | 'created_at' | 'updated_at'>, checked: boolean) => {
     setSettings(prev => ({ ...prev, [name]: checked }));
   };
-  
+
   const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -102,25 +153,83 @@ export default function AdminSettingsPage() {
       }
       const reader = new FileReader();
       reader.onloadend = () => {
-        setSettings(prev => ({ ...prev, collegeLogoUrl: reader.result as string }));
+        setSettings(prev => ({ ...prev, collegelogourl: reader.result as string }));
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
     setIsSaving(true);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(SITE_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    try {
+      // Extract only the fields we want to save (excluding id, created_at, updated_at)
+      const settingsToSave = {
+        collegename: settings.collegename,
+        collegelogourl: settings.collegelogourl,
+        contactemail: settings.contactemail,
+        socialfacebook: settings.socialfacebook,
+        socialtwitter: settings.socialtwitter,
+        sociallinkedin: settings.sociallinkedin,
+        socialinstagram: settings.socialinstagram,
+        socialgithub: settings.socialgithub,
+        enablealumnitransition: settings.enablealumnitransition,
+      };
+
+      // Save to Supabase
+      await saveToSupabase(settingsToSave);
+
+      // Also save to localStorage as backup
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(SITE_SETTINGS_STORAGE_KEY, JSON.stringify(settingsToSave));
+      }
+
       toast({
         title: "Settings Saved",
-        description: "Site settings have been updated successfully.",
+        description: "Site settings have been updated and synced across all users.",
         duration: 3000,
       });
+
+      // Trigger real-time update by calling loadSettings to refresh from Supabase
+      await loadSettings();
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      toast({
+        title: "Save Failed",
+        description: "Failed to save settings. Please try again.",
+        variant: "destructive",
+        duration: 3000,
+      });
+    } finally {
+      setIsSaving(false);
     }
-    setIsSaving(false);
   };
 
+  // Set up real-time subscription
+  useEffect(() => {
+    if (!user || user.role !== 'admin') return;
+
+    const channel = supabase
+      .channel('site_settings_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'site_settings'
+        },
+        (payload) => {
+          console.log('Real-time settings update:', payload);
+          if (payload.new) {
+            setSettings(prev => ({ ...defaultSiteSettings, ...payload.new }));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   if (pageLoading || authLoading) {
     return (
@@ -173,32 +282,45 @@ export default function AdminSettingsPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="collegeLogoUrl">College Logo</Label>
+              <Label htmlFor="collegename">College Name</Label>
+              <Input
+                id="collegename"
+                name="collegename"
+                type="text"
+                placeholder="e.g., APS College of Engineering"
+                value={settings.collegename || ''}
+                onChange={handleInputChange}
+              />
+              <p className="text-xs text-muted-foreground">Display name for your college in the navbar.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="collegelogourl">College Logo</Label>
               <div className="flex items-center gap-4">
-                {settings.collegeLogoUrl && (
-                  <img src={settings.collegeLogoUrl} alt="College Logo Preview" className="h-16 w-auto border rounded bg-muted p-1" data-ai-hint="logo building" />
+                {settings.collegelogourl && (
+                  <img src={settings.collegelogourl} alt="College Logo Preview" className="h-16 w-auto border rounded bg-muted p-1" data-ai-hint="logo building" />
                 )}
                 <label htmlFor="logo-upload-input" className="flex-1 cursor-pointer">
                     <div className="flex items-center justify-center w-full p-2 border-2 border-dashed rounded-md hover:border-primary transition-colors">
                         <UploadCloud className="h-6 w-6 text-muted-foreground mr-2" />
                         <span className="text-sm text-muted-foreground">
-                            {settings.collegeLogoUrl ? 'Change logo' : 'Upload logo'}
+                            {settings.collegelogourl ? 'Change logo' : 'Upload logo'}
                         </span>
                     </div>
-                    <Input id="logo-upload-input" name="collegeLogoUrl" type="file" className="sr-only" onChange={handleLogoUpload} accept="image/png, image/jpeg, image/svg+xml" />
+                    <Input id="logo-upload-input" name="collegelogourl" type="file" className="sr-only" onChange={handleLogoUpload} accept="image/png, image/jpeg, image/svg+xml" />
                 </label>
               </div>
               <p className="text-xs text-muted-foreground">Recommended: SVG or PNG format. Max 2MB.</p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="contactEmail">Contact Email</Label>
+              <Label htmlFor="contactemail">Contact Email</Label>
               <Input
-                id="contactEmail"
-                name="contactEmail"
+                id="contactemail"
+                name="contactemail"
                 type="email"
                 placeholder="e.g., contact@apsconnect.example.com"
-                value={settings.contactEmail || ''}
+                value={settings.contactemail || ''}
                 onChange={handleInputChange}
               />
               <p className="text-xs text-muted-foreground">Public contact email for inquiries.</p>
@@ -213,74 +335,39 @@ export default function AdminSettingsPage() {
             <CardDescription>Control site features and link social media profiles.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="flex items-center justify-between space-x-2 p-3 border rounded-md">
-              <div className="space-y-0.5">
-                <Label htmlFor="enableStudentRegistration" className="text-base">Enable Student Registration</Label>
-                <p className="text-xs text-muted-foreground">Allow new students to register accounts.</p>
-              </div>
-              <Switch
-                id="enableStudentRegistration"
-                checked={settings.enableStudentRegistration}
-                onCheckedChange={(checked) => handleSwitchChange('enableStudentRegistration', checked)}
-              />
-            </div>
-            
              <div className="flex items-center justify-between space-x-2 p-3 border rounded-md">
               <div className="space-y-0.5">
-                <Label htmlFor="enableAlumniTransition" className="text-base flex items-center gap-2"><GraduationCap className="h-5 w-5"/>Enable Alumni Transition</Label>
+                <Label htmlFor="enablealumnitransition" className="text-base flex items-center gap-2"><GraduationCap className="h-5 w-5"/>Enable Alumni Transition</Label>
                 <p className="text-xs text-muted-foreground">Show "Switch to Alumni" option for 8th sem students on their dashboard.</p>
               </div>
               <Switch
-                id="enableAlumniTransition"
-                checked={settings.enableAlumniTransition}
-                onCheckedChange={(checked) => handleSwitchChange('enableAlumniTransition', checked)}
+                id="enablealumnitransition"
+                checked={settings.enablealumnitransition}
+                onCheckedChange={(checked) => handleSwitchChange('enablealumnitransition', checked)}
               />
-            </div>
-            
-            <div className="space-y-2">
-                <div className="flex items-center justify-between space-x-2 mb-2">
-                    <Label htmlFor="maintenanceMode" className="text-base">Maintenance Mode</Label>
-                    <Switch
-                        id="maintenanceMode"
-                        checked={settings.maintenanceMode}
-                        onCheckedChange={(checked) => handleSwitchChange('maintenanceMode', checked)}
-                    />
-                </div>
-                <p className="text-xs text-muted-foreground -mt-1">Temporarily disable access to the site for non-admins.</p>
-                {settings.maintenanceMode && (
-                    <Textarea
-                    id="maintenanceMessage"
-                    name="maintenanceMessage"
-                    placeholder="Enter maintenance message..."
-                    value={settings.maintenanceMessage || ''}
-                    onChange={handleInputChange}
-                    rows={3}
-                    className="mt-2"
-                    />
-                )}
             </div>
 
             <div className="space-y-4 pt-4 border-t">
                 <h4 className="text-md font-semibold text-foreground flex items-center"><Globe className="mr-2 h-5 w-5"/> Social Media Links</h4>
                 <div className="space-y-2">
-                    <Label htmlFor="socialFacebook">Facebook URL</Label>
-                    <Input id="socialFacebook" name="socialFacebook" placeholder="https://facebook.com/yourcollege" value={settings.socialFacebook || ''} onChange={handleInputChange} />
+                    <Label htmlFor="socialfacebook">Facebook URL</Label>
+                    <Input id="socialfacebook" name="socialfacebook" placeholder="https://facebook.com/yourcollege" value={settings.socialfacebook || ''} onChange={handleInputChange} />
                 </div>
                 <div className="space-y-2">
-                    <Label htmlFor="socialTwitter">Twitter/X URL</Label>
-                    <Input id="socialTwitter" name="socialTwitter" placeholder="https://twitter.com/yourcollege" value={settings.socialTwitter || ''} onChange={handleInputChange} />
+                    <Label htmlFor="socialtwitter">Twitter/X URL</Label>
+                    <Input id="socialtwitter" name="socialtwitter" placeholder="https://twitter.com/yourcollege" value={settings.socialtwitter || ''} onChange={handleInputChange} />
                 </div>
                 <div className="space-y-2">
-                    <Label htmlFor="socialLinkedIn">LinkedIn URL</Label>
-                    <Input id="socialLinkedIn" name="socialLinkedIn" placeholder="https://linkedin.com/school/yourcollege" value={settings.socialLinkedIn || ''} onChange={handleInputChange} />
+                    <Label htmlFor="sociallinkedin">LinkedIn URL</Label>
+                    <Input id="sociallinkedin" name="sociallinkedin" placeholder="https://linkedin.com/school/yourcollege" value={settings.sociallinkedin || ''} onChange={handleInputChange} />
                 </div>
                  <div className="space-y-2">
-                    <Label htmlFor="socialInstagram">Instagram URL</Label>
-                    <Input id="socialInstagram" name="socialInstagram" placeholder="https://instagram.com/yourcollege" value={settings.socialInstagram || ''} onChange={handleInputChange} />
+                    <Label htmlFor="socialinstagram">Instagram URL</Label>
+                    <Input id="socialinstagram" name="socialinstagram" placeholder="https://instagram.com/yourcollege" value={settings.socialinstagram || ''} onChange={handleInputChange} />
                 </div>
                 <div className="space-y-2">
-                    <Label htmlFor="socialGithub">GitHub URL</Label>
-                    <Input id="socialGithub" name="socialGithub" placeholder="https://github.com/yourcollege" value={settings.socialGithub || ''} onChange={handleInputChange} />
+                    <Label htmlFor="socialgithub">GitHub URL</Label>
+                    <Input id="socialgithub" name="socialgithub" placeholder="https://github.com/yourcollege" value={settings.socialgithub || ''} onChange={handleInputChange} />
                 </div>
             </div>
           </CardContent>

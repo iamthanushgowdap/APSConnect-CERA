@@ -1,0 +1,21 @@
+-- Create a test student account for debugging
+-- First, get an auth user ID from auth.users table
+-- SELECT id, email FROM auth.users LIMIT 1;
+
+-- Then use that ID to create a profile (replace 'your-auth-user-id' with actual ID)
+-- INSERT INTO user_profiles (
+--   id, email, full_name, role, usn, student_id, branch, semester, is_approved
+-- ) VALUES (
+--   'your-auth-user-id-here',
+--   'teststudent@example.com',
+--   'Test Student',
+--   'student',
+--   '1AP23CS001',
+--   '1AP23CS001',
+--   'CSE',
+--   '5th Sem',
+--   true
+-- );
+
+-- Alternative: Create profile during registration process
+-- The registration should work now with our emergency bypass

@@ -53,13 +53,13 @@ export function CourseForm({ onSubmitSuccess, initialData, facultyUser }: Course
         const key = localStorage.key(i);
         if (key?.startsWith('apsconnect_user_')) {
           const profile = JSON.parse(localStorage.getItem(key)!) as UserProfile;
-          if (profile.role === 'student' && profile.isApproved && profile.branch && facultyUser.assignedBranches.includes(profile.branch)) {
+          if (profile.role === 'student' && profile.is_approved && profile.branch && facultyUser.assignedBranches.includes(profile.branch)) {
             students.push(profile);
           }
         }
       }
     }
-    setAvailableStudents(students.sort((a,b) => (a.displayName || "").localeCompare(b.displayName || "")));
+    setAvailableStudents(students.sort((a,b) => (a.display_name || a.full_name || a.email || '').localeCompare(b.display_name || b.full_name || b.email || '')));
   }, [facultyUser]);
 
   const onSubmit = async (data: CourseFormValues) => {
@@ -104,22 +104,22 @@ export function CourseForm({ onSubmitSuccess, initialData, facultyUser }: Course
                     <div className="max-h-48 overflow-y-auto p-3 border rounded-md space-y-2">
                         {availableStudents.length > 0 ? availableStudents.map((student) => (
                             <FormField
-                                key={student.uid}
+                                key={student.id}
                                 control={form.control}
                                 name="assignedStudentUids"
                                 render={({ field }) => (
                                     <FormItem className="flex flex-row items-start space-x-3 space-y-0">
                                         <FormControl>
                                             <Checkbox
-                                                checked={field.value?.includes(student.uid)}
+                                                checked={field.value?.includes(student.id)}
                                                 onCheckedChange={(checked) => {
                                                     return checked
-                                                        ? field.onChange([...(field.value || []), student.uid])
-                                                        : field.onChange((field.value || []).filter(uid => uid !== student.uid));
+                                                        ? field.onChange([...(field.value || []), student.id])
+                                                        : field.onChange((field.value || []).filter(uid => uid !== student.id));
                                                 }}
                                             />
                                         </FormControl>
-                                        <FormLabel className="font-normal text-sm">{student.displayName} ({student.usn})</FormLabel>
+                                        <FormLabel className="font-normal text-sm">{student.display_name || student.full_name} ({student.usn})</FormLabel>
                                     </FormItem>
                                 )}
                             />

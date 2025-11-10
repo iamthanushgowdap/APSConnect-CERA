@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -8,12 +7,14 @@ import type { Assignment, Branch, Semester } from '@/types';
 import { ASSIGNMENT_STORAGE_KEY } from '@/types';
 import { getAssignments } from '@/lib/supabase-utils';
 import { AssignmentItem } from '@/components/assignments/assignment-item';
+import ParticleBackground from "@/components/ui/particle-background";
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { ShieldCheck, BookMarked, Info, AlertTriangle, Search, ArrowLeft } from 'lucide-react';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { Input } from '@/components/ui/input';
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export default function StudentAssignmentsPage() {
   const { user, isLoading: authLoading } = useAuth();
@@ -59,24 +60,32 @@ export default function StudentAssignmentsPage() {
   }, [user, studentDetails.branch, studentDetails.semester]);
 
   useEffect(() => {
-    if (!authLoading && user) {
-      const isProfileCompleteForAssignments = !!(user.branch && user.semester);
-      setStudentDetails({
-        branch: user.branch,
-        semester: user.semester,
-        isProfileComplete: isProfileCompleteForAssignments
-      });
-      
-      if (user.role !== 'student' && user.role !== 'pending') {
-        router.push('/dashboard');
-      } else if (isProfileCompleteForAssignments) {
-        fetchAndFilterAssignments();
+    const loadData = async () => {
+      if (!authLoading) {
+        if (user) {
+          const isProfileCompleteForAssignments = !!(user.branch && user.semester);
+          setStudentDetails({
+            branch: user.branch,
+            semester: user.semester,
+            isProfileComplete: isProfileCompleteForAssignments
+          });
+
+          if (user.role !== 'student' && user.role !== 'pending') {
+            router.push('/dashboard');
+          } else if (isProfileCompleteForAssignments) {
+            await fetchAndFilterAssignments();
+            setPageLoading(false);
+          } else {
+            setPageLoading(false);
+          }
+        } else {
+          router.push('/login');
+          setPageLoading(false);
+        }
       }
-      setPageLoading(false);
-    } else if (!authLoading && !user) {
-      router.push('/login');
-      setPageLoading(false);
-    }
+    };
+
+    loadData();
   }, [user, authLoading, router, fetchAndFilterAssignments]);
 
   useEffect(() => {
@@ -149,8 +158,11 @@ export default function StudentAssignmentsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4 relative z-10">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center">
             <BookMarked className="mr-3 h-7 w-7" /> Assignments
         </h1>
@@ -178,23 +190,25 @@ export default function StudentAssignmentsPage() {
         </CardContent>
       </Card>
 
-      {filteredAssignments.length === 0 ? (
-        <Card className="shadow-lg">
-          <CardContent className="py-10 text-center">
-            <BookMarked className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
-            <p className="text-lg text-muted-foreground">
-              {searchTerm ? "No assignments match your search." : "No assignments posted for your class yet."}
-            </p>
-            <p className="text-sm text-muted-foreground mt-1">Please check back later.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredAssignments.map(assignment => (
-            <AssignmentItem key={assignment.id} assignment={assignment} />
-          ))}
-        </div>
-      )}
+      <ScrollArea>
+        {filteredAssignments.length === 0 ? (
+          <Card className="shadow-lg">
+            <CardContent className="py-10 text-center">
+              <BookMarked className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
+              <p className="text-lg text-muted-foreground">
+                {searchTerm ? "No assignments match your search." : "No assignments posted for your class yet."}
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">Please check back later.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredAssignments.map(assignment => (
+              <AssignmentItem key={assignment.id} assignment={assignment} />
+            ))}
+          </div>
+        )}
+      </ScrollArea>
     </div>
   );
 }

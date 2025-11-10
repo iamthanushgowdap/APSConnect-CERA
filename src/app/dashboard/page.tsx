@@ -18,12 +18,15 @@ export default function DashboardPage() {
           router.replace('/admin');
         } else if (user.role === 'faculty') {
           router.replace('/faculty');
-        } else if (user.role === 'student' || user.role === 'pending' || user.role === 'alumni') {
-          // Students, pending users, and alumni are redirected to the student dashboard
+        } else if (user.role === 'alumni') {
+          // Alumni get their own dedicated dashboard
+          router.replace('/alumni');
+        } else if (user.role === 'student' || user.role === 'pending') {
+          // Students and pending users go to student dashboard
           router.replace('/student');
         } else {
           // Fallback for unknown roles or if no specific dashboard exists
-          router.replace('/'); 
+          router.replace('/');
         }
       } else {
         // No user, redirect to login

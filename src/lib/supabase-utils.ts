@@ -1,10 +1,8 @@
 import { supabase } from './supabase';
-import type { UserProfile, Semester, FeeRecord, Assignment, Subject } from '@/types';
+import type { UserProfile, Semester, FeeRecord, Assignment, Subject, TimeTable, Branch } from '@/types';
 
 // Export supabase client for use in other files
 export { supabase };
-
-// Profile operations (using user_profiles table)
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
   console.log('🔍 Fetching profile for userId:', userId);
 
@@ -148,6 +146,8 @@ export const createUserProfileForce = async (profile: UserProfile): Promise<User
 };
 
 export const updateUserProfile = async (userId: string, profile: Partial<UserProfile>): Promise<UserProfile | null> => {
+  console.log('🔄 updateUserProfile called with:', { userId, profile });
+
   const { data, error } = await supabase
     .from('user_profiles')
     .update({
@@ -158,11 +158,14 @@ export const updateUserProfile = async (userId: string, profile: Partial<UserPro
     .select()
     .single();
 
+  console.log('📊 updateUserProfile result:', { data, error });
+
   if (error) {
-    console.error('Error updating profile:', error);
+    console.error('❌ updateUserProfile error:', error);
     throw error;
   }
 
+  console.log('✅ updateUserProfile success:', data);
   return data as UserProfile;
 };
 
@@ -254,44 +257,27 @@ export const createFaculty = async (facultyData: {
   facultyTitle?: string;
 }): Promise<UserProfile | null> => {
   try {
-    // First, create the auth account
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: facultyData.email.toLowerCase(),
-      password: facultyData.password,
+    // Use the API route to create faculty account server-side
+    const response = await fetch('/api/admin/create-faculty', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(facultyData),
     });
 
-    if (authError) {
-      console.error('Auth account creation error:', authError);
-      throw new Error(`Failed to create auth account: ${authError.message}`);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to create faculty account');
     }
 
-    if (!authData.user) {
-      throw new Error('Failed to create auth account');
+    const data = await response.json();
+
+    if (!data.success || !data.faculty) {
+      throw new Error('Invalid response from faculty creation API');
     }
 
-    // Then create the profile
-    const facultyProfile: UserProfile = {
-      id: authData.user.id,
-      email: facultyData.email.toLowerCase(),
-      full_name: facultyData.displayName,
-      pronouns: facultyData.pronouns || undefined,
-      phone: facultyData.phone || undefined,
-      password: facultyData.password,
-      assigned_branches: facultyData.assignedBranches,
-      assigned_semesters: facultyData.assignedSemesters as Semester[],
-      faculty_title: facultyData.facultyTitle || undefined,
-      role: 'faculty',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      is_approved: true,
-    };
-
-    const createdProfile = await createUserProfileForce(facultyProfile);
-    if (!createdProfile) {
-      throw new Error('Failed to create faculty profile');
-    }
-
-    return createdProfile;
+    return data.faculty;
   } catch (error) {
     console.error('Error creating faculty:', error);
     throw error;
@@ -466,6 +452,45 @@ export const updateFeeRecord = async (id: string, updates: Partial<FeeRecord>) =
     throw error;
   }
 
+  // Create notification for the student if fee status changed
+  try {
+    const studentId = data.student_id;
+    if (studentId && (updates.payment_status || updates.paid_amount)) {
+      const notification = {
+        id: `fee-${id}-${Date.now()}`,
+        userId: studentId,
+        type: 'fee_due',
+        title: 'Fee Record Updated',
+        message: `Your fee record for ${data.semester} ${data.year} has been updated. ${updates.payment_status === 'paid' ? 'Payment confirmed!' : 'Please check your fee details.'}`,
+        href: '/student/fee-details',
+        createdAt: new Date().toISOString(),
+        isRead: false
+      };
+
+      // Save to Supabase database
+      const { error: notifError } = await supabase
+        .from('notifications')
+        .insert([{
+          id: notification.id,
+          user_id: notification.userId,
+          type: notification.type,
+          title: notification.title,
+          message: notification.message,
+          href: notification.href,
+          created_at: notification.createdAt,
+          read: notification.isRead
+        }]);
+
+      if (notifError) {
+        console.error('Error creating fee update notification:', notifError);
+      } else {
+        console.log('Created fee update notification for student:', studentId);
+      }
+    }
+  } catch (notifError) {
+    console.error('Error in fee notification creation:', notifError);
+  }
+
   return data;
 };
 
@@ -593,6 +618,73 @@ export const updateTimetable = async (id: string, timetable: {
     console.error('Error updating timetable:', error);
     throw error;
   }
+
+  console.log('✅ Timetable updated, now creating notifications...');
+
+  // Create notifications for all students in the branch/semester
+  try {
+    console.log('🔔 Starting notification creation for timetable:', data.id);
+    console.log('🔔 Timetable details:', { branch: data.branch, semester: data.semester });
+    
+    const { data: students, error: studentsError } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('role', 'student')
+      .eq('branch', data.branch)
+      .eq('semester', data.semester);
+
+    console.log('🔔 Students query result:', { students: students?.length, error: studentsError });
+
+    if (studentsError) {
+      console.error('❌ Error querying students:', studentsError);
+      console.error('Error details:', JSON.stringify(studentsError, null, 2));
+      return data; // Return early if students query fails
+    }
+
+    if (students && students.length > 0) {
+      console.log('🔔 Found students:', students.map(s => s.id));
+      
+      const notifications = students.map(student => ({
+        id: `timetable-${data.id}-${student.id}-${Date.now()}`,
+        userId: student.id,
+        type: 'fee_due', // Using fee_due type as it's generic enough, could add timetable_update type
+        title: 'Timetable Updated',
+        message: `The timetable for ${data.branch} ${data.semester} has been updated. Please check the latest schedule.`,
+        href: '/student/timetable',
+        createdAt: new Date().toISOString(),
+        isRead: false
+      }));
+
+      console.log('🔔 Created notification objects:', notifications.length);
+
+      // Save to Supabase database
+      const { error: notifError } = await supabase
+        .from('notifications')
+        .insert(notifications.map(n => ({
+          id: n.id,
+          user_id: n.userId,
+          type: n.type,
+          title: n.title,
+          message: n.message,
+          href: n.href,
+          created_at: n.createdAt,
+          read: n.isRead
+        })));
+
+      if (notifError) {
+        console.error('❌ Error creating timetable notifications:', notifError);
+        console.error('Error details:', JSON.stringify(notifError, null, 2));
+      } else {
+        console.log(`✅ Created ${notifications.length} notifications for timetable update`);
+      }
+    } else {
+      console.log('⚠️ No students found for branch/semester:', data.branch, data.semester);
+    }
+    } catch (notifError: unknown) {
+      console.error('❌ Exception in timetable notification creation:', notifError);
+      const errorMessage = notifError instanceof Error ? notifError.stack : String(notifError);
+      console.error('Exception details:', errorMessage);
+    }
 
   console.log('✅ Timetable updated:', data);
   return data;
@@ -744,23 +836,95 @@ export const getFundraisingCampaigns = async () => {
   return data;
 };
 
-// Skill build courses operations
-export const getSkillBuildCourses = async () => {
+export const createFundraisingCampaign = async (campaign: {
+  title: string;
+  description: string;
+  qrCodeDataUrl: string;
+  contactDetails: string;
+  startDate: string;
+  endDate: string;
+  targetBranches: string[];
+  targetSemesters: string[];
+  createdByUid: string;
+  goalAmount: number;
+  currentAmount?: number;
+}) => {
+  const record = {
+    title: campaign.title,
+    description: campaign.description,
+    qr_code_data_url: campaign.qrCodeDataUrl,
+    contact_details: campaign.contactDetails,
+    start_date: campaign.startDate,
+    end_date: campaign.endDate,
+    target_branches: campaign.targetBranches,
+    target_semesters: campaign.targetSemesters,
+    created_by_uid: campaign.createdByUid,
+    goal_amount: campaign.goalAmount,
+    current_amount: campaign.currentAmount || 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
   const { data, error } = await supabase
-    .from('skill_build_courses')
-    .select('*')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false });
+    .from('fundraising_campaigns')
+    .insert([record])
+    .select()
+    .single();
 
   if (error) {
-    console.error('Error fetching skill build courses:', error);
-    return [];
+    console.error('Error creating fundraising campaign:', error);
+    throw error;
+  }
+
+  // Create notifications for all students in the target branches/semesters
+  try {
+    const { data: students } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('role', 'student')
+      .in('branch', campaign.targetBranches)
+      .in('semester', campaign.targetSemesters);
+
+    if (students && students.length > 0) {
+      const notifications = students.map(student => ({
+        id: `fundraising-${data.id}-${student.id}-${Date.now()}`,
+        userId: student.id,
+        type: 'low_attendance', // Using existing type, could add fundraising type
+        title: 'New Fundraising Campaign',
+        message: `New fundraising campaign "${campaign.title}" has been launched. Goal: ₹${campaign.goalAmount.toLocaleString()}. Help us reach our target!`,
+        href: '/student/fundraising',
+        createdAt: new Date().toISOString(),
+        isRead: false
+      }));
+
+      // Save to Supabase database
+      const { error: notifError } = await supabase
+        .from('notifications')
+        .insert(notifications.map(n => ({
+          id: n.id,
+          user_id: n.userId,
+          type: n.type,
+          title: n.title,
+          message: n.message,
+          href: n.href,
+          created_at: n.createdAt,
+          read: n.isRead
+        })));
+
+      if (notifError) {
+        console.error('Error creating fundraising notifications:', notifError);
+      } else {
+        console.log(`Created ${notifications.length} notifications for new fundraising campaign`);
+      }
+    }
+  } catch (notifError) {
+    console.error('Error in fundraising notification creation:', notifError);
   }
 
   return data;
 };
 
-// File upload/download operations
+// Test function to create a test notification
 export const uploadFile = async (bucket: string, filePath: string, file: File) => {
   const { data, error } = await supabase.storage
     .from(bucket)
@@ -817,6 +981,73 @@ export const createAssignment = async (assignment: Omit<Assignment, 'id' | 'post
     throw error;
   }
 
+  console.log('✅ Assignment record inserted, now creating notifications...');
+
+  // Create notifications for all students in the branch/semester
+  try {
+    console.log('🔔 Starting notification creation for assignment:', data.id);
+    console.log('🔔 Assignment details:', { branch: assignment.branch, semester: assignment.semester });
+    
+    const { data: students, error: studentsError } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('role', 'student')
+      .eq('branch', assignment.branch)
+      .eq('semester', assignment.semester);
+
+    console.log('🔔 Students query result:', { students: students?.length, error: studentsError });
+
+    if (studentsError) {
+      console.error('❌ Error querying students:', studentsError);
+      console.error('Error details:', JSON.stringify(studentsError, null, 2));
+      return data; // Return early if students query fails
+    }
+
+    if (students && students.length > 0) {
+      console.log('🔔 Found students:', students.map(s => s.id));
+      
+      const notifications = students.map(student => ({
+        id: `assignment-${data.id}-${student.id}-${Date.now()}`,
+        user_id: student.id,
+        type: 'assignment_deadline',
+        title: 'New Assignment Posted',
+        message: `New assignment "${assignment.title}" has been posted for ${assignment.branch} ${assignment.semester}. Due date: ${assignment.due_date ? new Date(assignment.due_date).toLocaleDateString() : 'Not specified'}`,
+        href: '/student/assignments',
+        created_at: new Date().toISOString(),
+        read: false
+      }));
+
+      console.log('🔔 Created notification objects:', notifications.length);
+
+      // Save to Supabase database
+      const { error: notifError } = await supabase
+        .from('notifications')
+        .insert(notifications.map(n => ({
+          id: n.id,
+          user_id: n.user_id,
+          type: n.type,
+          title: n.title,
+          message: n.message,
+          href: n.href,
+          created_at: n.created_at,
+          read: n.read
+        })));
+
+      if (notifError) {
+        console.error('❌ Error creating assignment notifications:', notifError);
+        console.error('❌ Notification error details:', JSON.stringify(notifError, null, 2));
+      } else {
+        console.log(`✅ Created ${notifications.length} notifications for new assignment`);
+      }
+    } else {
+      console.log('⚠️ No students found for branch/semester:', assignment.branch, assignment.semester);
+    }
+  } catch (notifError: unknown) {
+    console.error('❌ Exception in assignment notification creation:', notifError);
+    const errorMessage = notifError instanceof Error ? notifError.stack : String(notifError);
+    console.error('❌ Exception details:', errorMessage);
+  }
+
   return data;
 };
 
@@ -859,6 +1090,37 @@ export const deleteAssignment = async (id: string) => {
   }
 
   return true;
+};
+
+export const getAssignments = async (filters?: {
+  instructor_id?: string;
+  branch?: string;
+  semester?: string;
+}): Promise<Assignment[]> => {
+  try {
+    let query = supabase
+      .from('assignments')
+      .select('*')
+      .order('posted_at', { ascending: false });
+
+    if (filters) {
+      if (filters.instructor_id) query = query.eq('instructor_id', filters.instructor_id);
+      if (filters.branch) query = query.eq('branch', filters.branch);
+      if (filters.semester) query = query.eq('semester', filters.semester);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Error fetching assignments:', error);
+      throw error;
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('Error in getAssignments:', error);
+    throw error;
+  }
 };
 
 export const createUserProfile = async (profile: Omit<UserProfile, 'created_at' | 'updated_at'>) => {
@@ -980,7 +1242,7 @@ export const getBranches = async (): Promise<string[]> => {
     console.log('🔍 getBranches: Starting query...');
     const { data, error } = await supabase
       .from('branches')
-      .select('name')
+      .select('*')
       .order('name');
 
     console.log('📊 getBranches query result:', { data, error, dataLength: data?.length });
@@ -997,9 +1259,8 @@ export const getBranches = async (): Promise<string[]> => {
       return ["CSE", "ISE", "ECE", "ME", "CIVIL", "AI & ML", "OTHER"];
     }
 
-    const branchNames = data.map(branch => branch.name);
-    console.log('✅ Returning branches from database:', branchNames);
-    return branchNames;
+    console.log('✅ Returning branches from database:', data);
+    return data.map(branch => branch.name);
   } catch (error) {
     console.error('❌ Exception in getBranches:', error);
     return ["CSE", "ISE", "ECE", "ME", "CIVIL", "AI & ML", "OTHER"];
@@ -1009,40 +1270,183 @@ export const getBranches = async (): Promise<string[]> => {
 export const createBranch = async (branchName: string): Promise<string> => {
   try {
     const upperCaseName = branchName.trim().toUpperCase();
+    console.log('🏫 Creating branch:', upperCaseName);
+
+    const record = {
+      name: upperCaseName,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    console.log('📝 Branch record to insert:', record);
 
     const { data, error } = await supabase
       .from('branches')
-      .insert([{ name: upperCaseName }])
+      .insert([record])
       .select()
       .single();
 
     if (error) {
-      console.error('Error creating branch:', error);
+      console.error('❌ Error creating branch:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        fullError: error
+      });
       throw error;
+    }
+
+    console.log('✅ Branch created successfully:', data);
+
+    // Now create all the groups for this branch
+    console.log('📝 Creating groups for new branch:', upperCaseName);
+
+    // Department group
+    const departmentGroup = {
+      id: `${upperCaseName}_official`,
+      name: `${upperCaseName} Department`,
+      type: 'official',
+      branch: upperCaseName,
+      semester: 'ALL',
+      description: `Department announcements for ${upperCaseName}`
+    };
+
+    // Class groups for all semesters
+    const semesters = ['1st Sem', '2nd Sem', '3rd Sem', '4th Sem', '5th Sem', '6th Sem', '7th Sem', '8th Sem'];
+    const classGroups = semesters.map(sem => ({
+      id: `${upperCaseName}_${sem.replace(' ', '-')}_official`,
+      name: `${upperCaseName} - ${sem}`,
+      type: 'official',
+      branch: upperCaseName,
+      semester: sem,
+      description: `${upperCaseName} ${sem} official announcements`
+    }));
+
+    // Student discussion groups
+    const studentGroups = semesters.map(sem => ({
+      id: `${upperCaseName}_${sem.replace(' ', '-')}_student`,
+      name: `${upperCaseName} ${sem} Discussion`,
+      type: 'student',
+      branch: upperCaseName,
+      semester: sem,
+      description: `Peer-to-peer discussion for ${upperCaseName} ${sem}`
+    }));
+
+    const allGroups = [departmentGroup, ...classGroups, ...studentGroups];
+
+    console.log('📋 Groups to create:', allGroups.map(g => g.id));
+
+    const { error: groupsError } = await supabase
+      .from('groups')
+      .insert(allGroups);
+
+    if (groupsError) {
+      console.error('❌ Error creating groups for branch:', {
+        code: groupsError.code,
+        message: groupsError.message,
+        details: groupsError.details,
+        hint: groupsError.hint,
+        fullError: groupsError,
+        groupsAttempted: allGroups.map(g => g.id)
+      });
+      // Don't throw here - branch was created successfully, just log the groups error
+    } else {
+      console.log('✅ Created', allGroups.length, 'groups for branch:', upperCaseName);
+
+      // Automatically assign admin to all the new groups
+      // We need to get the current user's ID (admin) to assign them
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const adminAssignments = allGroups.map(group => ({
+            group_id: group.id,
+            user_id: user.id,
+            role: 'admin',
+            can_post: true
+          }));
+
+          const { error: assignError } = await supabase
+            .from('group_members')
+            .insert(adminAssignments);
+
+          if (assignError) {
+            console.error('❌ Error assigning admin to new groups:', assignError);
+          } else {
+            console.log('✅ Assigned admin to', allGroups.length, 'new groups');
+          }
+        }
+      } catch (assignError) {
+        console.error('❌ Error in admin assignment:', assignError);
+      }
     }
 
     return data.name;
   } catch (error) {
-    console.error('Error in createBranch:', error);
+    console.error('❌ Exception in createBranch:', error);
     throw error;
   }
 };
 
-export const deleteBranch = async (branchName: string): Promise<boolean> => {
+export const deleteBranch = async (branchName: string): Promise<void> => {
   try {
+    console.log('🗑️ Starting branch deletion process for:', branchName);
+
+    // First check how many groups exist for this branch
+    const { count: groupsCount, error: countError } = await supabase
+      .from('groups')
+      .select('*', { count: 'exact', head: true })
+      .eq('branch', branchName);
+
+    if (countError) {
+      console.error('❌ Error counting groups for branch:', countError);
+    } else {
+      console.log(`📊 Found ${groupsCount} groups associated with branch: ${branchName}`);
+    }
+
+    // Delete all groups associated with this branch
+    console.log('🗑️ Deleting all groups for branch:', branchName);
+    const { error: groupsError } = await supabase
+      .from('groups')
+      .delete()
+      .eq('branch', branchName);
+
+    if (groupsError) {
+      console.error('❌ Error deleting groups for branch:', groupsError);
+      console.log('⚠️ Continuing with branch deletion despite groups error...');
+    } else {
+      console.log('✅ Successfully deleted all groups for branch:', branchName);
+    }
+
+    // Also clean up any group memberships for this branch's groups
+    console.log('🧹 Cleaning up group memberships...');
+    const { error: membershipsError } = await supabase
+      .from('group_members')
+      .delete()
+      .like('group_id', `${branchName}_%`);
+
+    if (membershipsError) {
+      console.error('❌ Error cleaning up group memberships:', membershipsError);
+    } else {
+      console.log('✅ Successfully cleaned up group memberships');
+    }
+
+    // Finally delete the branch itself
+    console.log('🗑️ Deleting branch record:', branchName);
     const { error } = await supabase
       .from('branches')
       .delete()
       .eq('name', branchName);
 
     if (error) {
-      console.error('Error deleting branch:', error);
+      console.error('❌ Error deleting branch:', error);
       throw error;
     }
 
-    return true;
+    console.log('✅ Branch deletion completed successfully:', branchName);
+    console.log('📋 Summary: Deleted branch, all associated groups, and memberships');
+
   } catch (error) {
-    console.error('Error in deleteBranch:', error);
+    console.error('❌ Exception in deleteBranch:', error);
     throw error;
   }
 };
@@ -1112,4 +1516,218 @@ export const deleteSubject = async (id: string) => {
   }
 
   return true;
+};
+
+// Timetable operations (using timetables table)
+export const getTimetable = async (branch: Branch, semester: Semester): Promise<TimeTable | null> => {
+  console.log('🔍 Fetching timetable for:', { branch, semester });
+
+  try {
+    // First try the original query
+    let { data, error } = await supabase
+      .from('timetables')
+      .select('*')
+      .eq('branch', branch)
+      .eq('semester', semester)
+      .single();
+
+    // If we get a 406 error (RLS issue), try without .single() to see if we can access the table at all
+    if (error && error.code === '406') {
+      console.log('⚠️ 406 error detected, trying alternative query approach...');
+
+      // Try with a more permissive query
+      const { data: altData, error: altError } = await supabase
+        .from('timetables')
+        .select('*')
+        .eq('branch', branch)
+        .eq('semester', semester);
+
+      if (!altError && altData && altData.length > 0) {
+        console.log('✅ Alternative query successful, found data');
+        data = altData[0];
+        error = null;
+      } else {
+        console.log('❌ Alternative query also failed:', altError);
+        // Try even more permissive - get all timetables to test RLS
+        const { data: allData, error: allError } = await supabase
+          .from('timetables')
+          .select('*')
+          .limit(1);
+
+        if (!allError && allData && allData.length > 0) {
+          console.log('✅ Can access timetables table, but specific query fails');
+          console.log('🔍 Available data sample:', allData[0]);
+        } else {
+          console.log('❌ Cannot access timetables table at all - RLS policy issue');
+        }
+      }
+    }
+
+    // Handle Supabase-specific errors
+    if (error && error.code !== 'PGRST116') { // PGRST116 is "not found" error
+      console.error('❌ Error fetching timetable:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        fullError: error
+      });
+      throw new Error(`Database error: ${error.message || 'Unknown error'} (Code: ${error.code})`);
+    }
+
+    if (data) {
+      console.log('✅ Timetable found:', {
+        id: data.id,
+        branch: data.branch,
+        semester: data.semester,
+        lastUpdatedBy: data.lastUpdatedBy,
+        lastUpdatedAt: data.lastUpdatedAt
+      });
+      return data as TimeTable;
+    }
+
+    console.log('⚠️ No timetable found for:', { branch, semester });
+    return null;
+  } catch (error: any) {
+    // Handle network errors and other unexpected errors
+    if (error?.name === 'TypeError' && error?.message?.includes('Failed to fetch')) {
+      console.error('❌ Network error in getTimetable:', {
+        name: error.name,
+        message: error.message,
+        cause: 'Network connectivity issue'
+      });
+      throw new Error('Network error: Unable to connect to the server. Please check your internet connection.');
+    }
+
+    // Handle other errors
+    console.error('❌ Unexpected error in getTimetable:', {
+      error: error?.message || error,
+      type: typeof error,
+      name: error?.name
+    });
+
+    if (error instanceof Error) {
+      throw error;
+    }
+
+    throw new Error('An unexpected error occurred while fetching the timetable.');
+  }
+};
+
+export const saveTimetable = async (timetable: TimeTable): Promise<TimeTable> => {
+  console.log('💾 Saving timetable:', {
+    branch: timetable.branch,
+    semester: timetable.semester,
+    scheduleLength: timetable.schedule?.length || 0
+  });
+
+  try {
+    const { data, error } = await supabase
+      .from('timetables')
+      .upsert(timetable, {
+        onConflict: 'branch,semester'
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ Error saving timetable:', error);
+      throw error;
+    }
+
+    console.log('✅ Timetable saved successfully:', data.id);
+
+    // Create notifications for all students in the branch/semester
+    try {
+      console.log('🔔 Starting notification creation for timetable update:', data.id);
+      console.log('🔔 Timetable details:', { branch: timetable.branch, semester: timetable.semester });
+
+      const { data: students, error: studentsError } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('role', 'student')
+        .eq('branch', timetable.branch)
+        .eq('semester', timetable.semester);
+
+      console.log('🔔 Students query result:', { students: students?.length, error: studentsError });
+
+      if (studentsError) {
+        console.error('❌ Error querying students for timetable notifications:', studentsError);
+        console.error('Error details:', JSON.stringify(studentsError, null, 2));
+        return data; // Return early if students query fails
+      }
+
+      if (students && students.length > 0) {
+        console.log('🔔 Found students for timetable:', students.map(s => s.id));
+
+        const notifications = students.map(student => ({
+          id: `timetable-${data.id}-${student.id}-${Date.now()}`,
+          user_id: student.id,
+          type: 'timetable_update',
+          title: 'Timetable Updated',
+          message: `The timetable for ${timetable.branch} ${timetable.semester} has been updated. Please check the latest schedule.`,
+          href: '/student/timetable',
+          created_at: new Date().toISOString(),
+          read: false
+        }));
+
+        console.log('🔔 Created timetable notification objects:', notifications.length);
+
+        // Save to Supabase database
+        const { error: notifError } = await supabase
+          .from('notifications')
+          .insert(notifications.map(n => ({
+            id: n.id,
+            user_id: n.user_id,
+            type: n.type,
+            title: n.title,
+            message: n.message,
+            href: n.href,
+            created_at: n.created_at,
+            read: n.read
+          })));
+
+        if (notifError) {
+          console.error('❌ Error creating timetable notifications:', notifError);
+          console.error('❌ Notification error details:', JSON.stringify(notifError, null, 2));
+        } else {
+          console.log(`✅ Created ${notifications.length} timetable notifications for update`);
+        }
+      } else {
+        console.log('⚠️ No students found for timetable branch/semester:', timetable.branch, timetable.semester);
+      }
+    } catch (notifError: unknown) {
+      console.error('❌ Exception in timetable notification creation:', notifError);
+      const errorMessage = notifError instanceof Error ? notifError.stack : String(notifError);
+      console.error('❌ Exception details:', errorMessage);
+    }
+
+    return data as TimeTable;
+  } catch (error) {
+    console.error('❌ Error in saveTimetable:', error);
+    throw error;
+  }
+};
+
+export const getAllTimetables = async (): Promise<TimeTable[]> => {
+  console.log('🔍 Fetching all timetables');
+
+  try {
+    const { data, error } = await supabase
+      .from('timetables')
+      .select('*')
+      .order('branch', { ascending: true })
+      .order('semester', { ascending: true });
+
+    if (error) {
+      console.error('❌ Error fetching all timetables:', error);
+      throw error;
+    }
+
+    console.log('✅ Found', data?.length || 0, 'timetables');
+    return data as TimeTable[];
+  } catch (error) {
+    console.error('❌ Error in getAllTimetables:', error);
+    throw error;
+  }
 };

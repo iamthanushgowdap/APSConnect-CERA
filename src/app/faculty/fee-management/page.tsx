@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import type { FeeRecord, UserProfile, Branch, Semester, FeeStatus } from '@/types';
 import { feeStatuses } from '@/types';
 import { getUserProfiles, getFeeRecords } from '@/lib/supabase-utils';
+import ParticleBackground from "@/components/ui/particle-background";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCnCardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -48,7 +49,7 @@ export default function FacultyFeeManagementPage() {
         assignedStudents = assignedStudents.filter(s => facultyAssignedBranches.includes(s.branch!));
       }
       if (facultyAssignedSemesters.length > 0) {
-        assignedStudents = assignedStudents.filter(s => facultyAssignedSemesters.includes(s.semester!));
+        assignedStudents = assignedStudents.filter(s => facultyAssignedSemesters.includes(s.semester! as Semester));
       }
 
       setAllStudents(assignedStudents);
@@ -117,14 +118,17 @@ export default function FacultyFeeManagementPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex justify-between items-center mb-4 relative z-10">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center"><CreditCard className="mr-3 h-7 w-7" /> Student Fee Status</h1>
             <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back"><ArrowLeft className="h-5 w-5" /></Button>
         </div>
         <p className="text-sm sm:text-base text-muted-foreground mb-8">Track fee payment status for students in your assigned areas.</p>
         
-        <Card className="shadow-lg mb-8">
+        <Card className="shadow-lg mb-8 relative z-10">
             <CardHeader><CardTitle className="flex items-center gap-2"><Filter className="h-5 w-5" /> Filter Records</CardTitle></CardHeader>
             <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mt-2">
@@ -163,8 +167,8 @@ export default function FacultyFeeManagementPage() {
             </CardContent>
         </Card>
 
-        <Card className="shadow-lg">
-            <CardHeader><CardTitle>Fee Records</CardTitle><ShadCnCardDescription>Total records: {filteredRecords.length}</ShadCnCardDescription></CardHeader>
+        <Card className="shadow-lg relative z-10">
+            <CardHeader><CardTitle>Fee Records</CardTitle><ShadCnCardDescription>Payment status for {filteredRecords.length} student{filteredRecords.length !== 1 ? 's' : ''} matching your filters.</ShadCnCardDescription></CardHeader>
             <CardContent><div className="overflow-x-auto">
                 <Table>
                     <TableHeader><TableRow><TableHead>Student</TableHead><TableHead>Student ID</TableHead><TableHead>Fee Breakdown</TableHead><TableHead>Total</TableHead><TableHead>Paid</TableHead><TableHead>Due</TableHead><TableHead>Due Date</TableHead><TableHead>Status</TableHead><TableHead>Paid At</TableHead></TableRow></TableHeader>

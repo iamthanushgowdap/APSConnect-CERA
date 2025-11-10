@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { ShieldCheck, ArrowLeft } from 'lucide-react';
 import { NewPostToast } from '@/components/notifications/new-post-toast';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
+import { supabase } from '@/lib/supabase';
 
 const getInitials = (name?: string | null) => {
   if (!name) return "??";
@@ -21,6 +22,80 @@ const getInitials = (name?: string | null) => {
     return (parts[0][0] + (parts[parts.length - 1][0] || '')).toUpperCase();
   }
   return name.substring(0, 2).toUpperCase();
+};
+
+// Function to create notifications for new posts
+const createNotificationsForNewPost = async (post: Post) => {
+  try {
+    console.log('🔔 Starting notification creation for post:', post.title);
+
+    // Get all users who should receive this notification
+    const { data: users, error } = await supabase
+      .from('user_profiles')
+      .select('id, role, branch, semester')
+      .in('role', ['student', 'faculty', 'alumni']);
+
+    console.log('🔔 Fetched users:', users?.length || 0, 'users');
+
+    if (error) {
+      console.error('❌ Error fetching users for notifications:', error);
+      return;
+    }
+
+    if (!users || users.length === 0) {
+      console.log('⚠️ No users found to notify');
+      return;
+    }
+
+    // Filter users based on post targeting
+    let targetUsers = users;
+
+    if (post.targetBranches && post.targetBranches.length > 0) {
+      console.log('🎯 Filtering by branches:', post.targetBranches);
+      targetUsers = users.filter(user =>
+        user.branch && post.targetBranches!.includes(user.branch)
+      );
+      console.log('🎯 Target users after branch filter:', targetUsers.length);
+    }
+
+    if (targetUsers.length === 0) {
+      console.log('⚠️ No users match the target criteria');
+      return;
+    }
+
+    // Create notification data
+    const notifications = targetUsers.map(user => ({
+      id: `${user.id}-${post.id}-${Date.now()}`, // Generate unique ID
+      user_id: user.id, // This should be the UUID from user_profiles.id
+      type: 'event',
+      title: `New ${post.category}: ${post.title}`,
+      message: post.content.length > 100
+        ? `${post.content.substring(0, 100)}...`
+        : post.content,
+      href: '/feed',
+      read: false
+      // created_at will be set by default
+    }));
+
+    console.log('📝 Created notification objects:', notifications.length);
+
+    // Insert notifications into database
+    const { error: insertError, data } = await supabase
+      .from('notifications')
+      .insert(notifications)
+      .select();
+
+    if (insertError) {
+      console.error('❌ Error creating notifications:', insertError);
+      console.error('❌ Insert error details:', JSON.stringify(insertError, null, 2));
+    } else {
+      console.log('✅ Successfully created notifications:', data?.length || 0);
+      console.log('✅ Notification data:', data);
+    }
+  } catch (error) {
+    console.error('❌ Error in createNotificationsForNewPost:', error);
+    console.error('❌ Full error:', error);
+  }
 };
 
 export default function AdminCreatePostPage() {
@@ -58,22 +133,57 @@ export default function AdminCreatePostPage() {
             existingPosts.push(finalPostData); 
         }
         localStorage.setItem('apsconnect_posts', JSON.stringify(existingPosts)); 
-      }
 
-      toast({
-        variant: "raw",
-        description: (
-          <NewPostToast
-            authorName={postData.authorName}
-            authorInitials={getInitials(postData.authorName)}
-            postCategory={postData.category}
-            postTitle={postData.title}
-            timestamp={postData.createdAt}
-          />
-        ),
-        duration: 3000, 
-      });
-      router.push('/admin'); 
+        // Create notifications for users about this new post
+        console.log('📢 About to create notifications for post:', postData.title);
+        try {
+          // First, create a test notification for the current admin user
+          if (user) {
+            console.log('🧪 Creating test notification for current user');
+            const testNotification = {
+              id: `test-${user.uid}-${Date.now()}`,
+              user_id: user.uid,
+              type: 'event',
+              title: 'Test: System Working',
+              message: 'This confirms notifications are working for admin users.',
+              href: '/feed',
+              read: false
+            };
+
+            const { error: testError } = await supabase
+              .from('notifications')
+              .insert(testNotification);
+
+            if (testError) {
+              console.error('❌ Test notification failed:', testError);
+            } else {
+              console.log('✅ Test notification created successfully');
+            }
+          }
+
+          // Then create notifications for all users
+          await createNotificationsForNewPost(postData);
+          console.log('✅ Notification creation completed');
+        } catch (error) {
+          console.error('❌ Error creating notifications for new post:', error);
+          // Don't fail the post creation if notifications fail
+        }
+
+        toast({
+          variant: "raw",
+          description: (
+            <NewPostToast
+              authorName={postData.authorName}
+              authorInitials={getInitials(postData.authorName)}
+              postCategory={postData.category}
+              postTitle={postData.title}
+              timestamp={postData.createdAt}
+            />
+          ),
+          duration: 3000, 
+        });
+        router.push('/admin'); 
+      }
     } catch (error) {
       console.error("Error creating post:", error);
       toast({

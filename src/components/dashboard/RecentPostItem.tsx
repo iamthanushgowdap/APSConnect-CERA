@@ -38,12 +38,14 @@ export function RecentPostItem({ post }: RecentPostItemProps) {
 
   const IconComponent = post?.category && categoryIcons[post.category] ? categoryIcons[post.category] : FileText;
 
+  const IconElement = IconComponent as React.ComponentType<{ className?: string }>;
+
   return (
     <Card className="shadow-md hover:shadow-xl transition-all duration-300 ease-in-out flex flex-col h-full bg-background border border-border/50 rounded-2xl overflow-hidden">
       <CardHeader className="pb-2 pt-5 px-6">
         <div className="flex justify-between items-start mb-2">
           <div className="flex items-center gap-3">
-            <IconComponent className="h-6 w-6 text-primary" />
+            <IconElement className="h-6 w-6 text-primary" />
             <CardTitle className="text-lg font-semibold text-primary leading-tight line-clamp-2">
               {post.title}
             </CardTitle>

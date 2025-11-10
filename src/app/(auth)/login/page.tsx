@@ -1,14 +1,10 @@
-
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import * as z from "zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react"; 
+import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import {
   Form,
   FormControl,
@@ -18,118 +14,59 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PasswordInput } from '@/components/ui/password-input';
 import { useToast } from "@/hooks/use-toast";
-import { useAuth, User } from "@/components/auth-provider"; 
-import type { UserRole, UserProfile } from "@/types";
-import { Icons } from "@/components/icons";
+import { useAuth, User } from "@/components/auth-provider";
+import { ShootingStars } from "@/components/ui/shooting-stars";
 
-const usnRegex = /^1AP\d{2}[A-Z]{2}\d{3}$/i; 
-
-const loginSchema = z.object({
-  identifier: z.string().min(1, { message: "This field is required." }), 
-  password: z.string().min(1, { message: "Password is required." }),
-  mode: z.enum(["student", "admin", "faculty"], { required_error: "Please select a login mode." })
-}).superRefine((data, ctx) => {
-  if (data.mode === "student") {
-    if (!usnRegex.test(data.identifier)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Invalid USN format. Expected: 1APYYBBNNN (e.g., 1AP23CS001)",
-        path: ["identifier"],
-      });
-    }
-  } else if (data.mode === "admin" || data.mode === "faculty") {
-    if (!z.string().email().safeParse(data.identifier).success) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `Invalid email address for ${data.mode}.`,
-        path: ["identifier"],
-      });
-    }
-  }
-});
-
-type LoginFormValues = z.infer<typeof loginSchema>;
-
-const ADMIN_EMAIL = "admin@gmail.com"; 
-const ADMIN_PASSWORD = "admin123"; // This becomes a fallback
+type LoginFormValues = {
+  email: string;
+  password: string;
+};
 
 export default function LoginPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { signIn } = useAuth(); 
+  const { signIn } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema),
     defaultValues: {
-      identifier: "",
+      email: "",
       password: "",
-      mode: "student",
     },
   });
 
-  const loginMode = form.watch("mode");
-
   async function onSubmit(data: LoginFormValues) {
+    // Simple email validation
+    const { email, password } = data;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      form.setError("email", {
+        type: "manual",
+        message: "Please enter a valid email address.",
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const { identifier, password, mode } = data;
       let targetRoute = "/dashboard";
       let loggedInUser: User;
 
-      if (mode === "admin") {
-        // For now, keep admin login as-is since it might not be in Supabase yet
-        const adminProfileKey = `apsconnect_user_${ADMIN_EMAIL.toLowerCase()}`; 
-        const adminProfileStr = typeof window !== 'undefined' ? localStorage.getItem(adminProfileKey) : null;
-        let effectiveAdminPassword = ADMIN_PASSWORD;
-        let adminDisplayName = "APSConnect Admin";
+      // Sign in with email (assuming signIn expects email as username)
+      loggedInUser = await signIn({
+        username: email,
+        password,
+      });
 
-        if (adminProfileStr) {
-          const adminProfile = JSON.parse(adminProfileStr) as UserProfile;
-          if (adminProfile.password) {
-            effectiveAdminPassword = adminProfile.password;
-          }
-          if (adminProfile.full_name) {
-            adminDisplayName = adminProfile.full_name;
-          }
-        }
-        
-        if (identifier.toLowerCase() === ADMIN_EMAIL && password === effectiveAdminPassword) {
-          loggedInUser = await signIn({ 
-            username: identifier.toLowerCase(), 
-            password: password, 
-          });
-          targetRoute = "/admin";
-        } else {
-          toast({
-            title: "Login Failed",
-            description: "Invalid admin credentials.",
-            variant: "destructive",
-            duration: 3000,
-          });
-          setIsLoading(false);
-          return;
-        }
-      } else if (mode === "faculty") {
-        loggedInUser = await signIn({
-          username: identifier.toLowerCase(),
-          password,
-        });
-        targetRoute = facultyUserHasPendingTasks(loggedInUser) ? "/faculty/user-management" : "/faculty";
-      } else { // Student mode
-        loggedInUser = await signIn({ 
-          username: identifier.toUpperCase(), 
-          password, 
-        });
+      // Redirect based on user role (assuming User object has role property)
+      if (loggedInUser.role === "admin") {
+        targetRoute = "/admin";
+      } else if (loggedInUser.role === "faculty") {
+        targetRoute = "/faculty";
+      } else {
+        targetRoute = "/dashboard"; // Student default
       }
 
       toast({
@@ -151,141 +88,199 @@ export default function LoginPage() {
     }
   }
 
-  const facultyUserHasPendingTasks = (facultyUser: User): boolean => {
-    if (typeof window === 'undefined' || !facultyUser.assignedBranches || facultyUser.assignedBranches.length === 0) {
-        return false;
-    }
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('apsconnect_user_')) { 
-            try {
-                const profile = JSON.parse(localStorage.getItem(key) || '{}') as UserProfile;
-                if (profile.role === 'pending' && 
-                    !profile.is_approved && 
-                    !profile.rejection_reason &&
-                    profile.branch &&
-                    facultyUser.assignedBranches?.includes(profile.branch)) {
-                    return true; 
-                }
-            } catch (e) { /* ignore parse errors */ }
-        }
-    }
-    return false;
-  };
-  
-  const getIdentifierLabel = () => {
-    switch(loginMode) {
-      case "student": return "USN";
-      case "admin": return "Admin Email";
-      case "faculty": return "Faculty Email";
-      default: return "Identifier";
-    }
-  };
-
-  const getIdentifierPlaceholder = () => {
-    switch(loginMode) {
-      case "student": return "e.g., 1AP23CS001";
-      case "admin": return "admin@example.com";
-      case "faculty": return "faculty@example.com";
-      default: return "Enter your identifier";
-    }
-  };
-
-
   return (
-    <div className="container flex min-h-[calc(100vh-8rem)] sm:min-h-[calc(100vh-10rem)] items-center justify-center py-8 sm:py-12 px-4">
-      <Card className="w-full max-w-sm sm:max-w-md shadow-xl">
-        <CardHeader className="text-center items-center">
-          <Icons.AppLogo className="h-12 w-12 text-primary mb-4" />
-          <CardTitle className="text-2xl font-bold tracking-tight text-primary">Welcome to APSConnect</CardTitle>
-          <CardDescription className="text-base">Enter your credentials to access your account.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 sm:space-y-6">
-              <FormField
-                control={form.control}
-                name="mode"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Login as</FormLabel>
-                    <Select 
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        form.setValue("identifier", ""); 
-                        form.clearErrors("identifier"); 
-                      }} 
-                      defaultValue={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger className="text-sm sm:text-base" suppressHydrationWarning>
-                          <SelectValue placeholder="Select login mode" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="student" className="text-sm sm:text-base">Student (USN)</SelectItem>
-                        <SelectItem value="faculty" className="text-sm sm:text-base">Faculty (Email)</SelectItem>
-                        <SelectItem value="admin" className="text-sm sm:text-base">Admin (Email)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage className="text-xs sm:text-sm"/>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="identifier"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">{getIdentifierLabel()}</FormLabel>
-                    <FormControl>
-                      <Input 
-                        type={loginMode === "student" ? "text" : "email"} 
-                        placeholder={getIdentifierPlaceholder()} 
-                        {...field} 
-                        className="text-sm sm:text-base"
-                        onInput={loginMode === "student" ? (e) => e.currentTarget.value = e.currentTarget.value.toUpperCase() : undefined}
-                        autoCapitalize={loginMode === "student" ? "characters" : "none"}
-                        suppressHydrationWarning
-                      />
-                    </FormControl>
-                    <FormMessage className="text-xs sm:text-sm"/>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Password</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} className="text-sm sm:text-base" suppressHydrationWarning/>
-                    </FormControl>
-                    <FormMessage className="text-xs sm:text-sm"/>
-                  </FormItem>
-                )}
-              />
-              <Button type="submit" className="w-full text-sm sm:text-base" disabled={isLoading} suppressHydrationWarning>
-                {isLoading ? "Logging in..." : "Login"}
-              </Button>
-            </form>
-          </Form>
-          <div className="mt-4 sm:mt-6 text-center text-xs sm:text-sm">
-            <p>
+    <>
+      <ShootingStars />
+      <div className="container mx-auto px-4 py-8 pt-28 pb-48 min-h-screen" style={{ backgroundColor: 'hsl(var(--background))', fontFamily: "'Poppins', sans-serif" }}>
+      <div className="flex justify-center">
+        {/* Background Shapes */}
+        <div className="background relative" style={{
+          width: '320px',
+          height: '425px', // Updated to match new form height
+          margin: '0 auto'
+        }}>
+          <div className="shape" style={{
+            height: '120px',
+            width: '120px',
+            position: 'absolute',
+            borderRadius: '50%',
+            background: 'linear-gradient(#1845ad, #23a2f6)',
+            left: '-40px',
+            top: '-40px'
+          }}></div>
+          <div className="shape" style={{
+            height: '120px',
+            width: '120px',
+            position: 'absolute',
+            borderRadius: '50%',
+            background: 'linear-gradient(to right, #ff512f, #f09819)',
+            right: '-30px', // Moved from -20px to -30px (about 3% to the right)
+            bottom: '-40px'
+          }}></div>
+
+          {/* Glassmorphism Form */}
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            style={{
+              height: '425px', // Reduced from 450px to 425px (25px increase instead of 50px)
+              width: '320px',
+              backgroundColor: 'rgba(255,255,255,0.1)',
+              position: 'relative',
+              borderRadius: '10px',
+              backdropFilter: 'blur(15px)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+              padding: '35px 30px',
+              color: 'hsl(var(--foreground))',
+              fontFamily: "'Poppins', sans-serif",
+              zIndex: 10,
+              marginTop: '5px' // Reduced from 10px to 5px
+            }}
+          >
+        <h3 style={{
+          fontSize: '32px',
+          fontWeight: '500',
+          lineHeight: '42px',
+          textAlign: 'center',
+          marginBottom: '20px'
+        }}>
+          Login Here
+        </h3>
+
+        <Form {...form}>
+          <div style={{ marginTop: '30px' }}>
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel style={{
+                    display: 'block',
+                    fontSize: '16px',
+                    fontWeight: '500',
+                    color: 'hsl(var(--foreground))',
+                    marginBottom: '8px'
+                  }}>
+                    Email
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type="email"
+                      placeholder="Enter your email address"
+                      style={{
+                        display: 'block',
+                        height: '50px',
+                        width: '100%',
+                        backgroundColor: 'rgba(255,255,255,0.1)',
+                        borderRadius: '3px',
+                        padding: '0 10px',
+                        fontSize: '14px',
+                        fontWeight: '300',
+                        color: 'hsl(var(--foreground))',
+                        border: '1px solid rgba(255,255,255,0.3)',
+                        outline: 'none'
+                      }}
+                      suppressHydrationWarning
+                    />
+                  </FormControl>
+                  <FormMessage style={{ color: '#ff6b6b', fontSize: '12px', marginTop: '4px' }} />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div style={{ marginTop: '30px' }}>
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel style={{
+                    display: 'block',
+                    fontSize: '16px',
+                    fontWeight: '500',
+                    color: 'hsl(var(--foreground))',
+                    marginBottom: '8px'
+                  }}>
+                    Password
+                  </FormLabel>
+                  <FormControl>
+                    <PasswordInput
+                      {...field}
+                      placeholder="Password"
+                      style={{
+                        display: 'block',
+                        height: '50px',
+                        width: '100%',
+                        backgroundColor: 'rgba(255,255,255,0.1)',
+                        borderRadius: '3px',
+                        padding: '0 10px',
+                        fontSize: '14px',
+                        fontWeight: '300',
+                        color: 'hsl(var(--foreground))',
+                        border: '1px solid rgba(255,255,255,0.3)',
+                        outline: 'none'
+                      }}
+                      suppressHydrationWarning
+                    />
+                  </FormControl>
+                  <FormMessage style={{ color: '#ff6b6b', fontSize: '12px', marginTop: '4px' }} />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            style={{
+              marginTop: '55px', // Reduced from 60px to 55px
+              width: '100%',
+              backgroundColor: 'hsl(var(--primary))',
+              color: 'hsl(var(--primary-foreground))',
+              padding: '15px 0',
+              fontSize: '18px',
+              fontWeight: '600',
+              borderRadius: '5px',
+              border: 'none',
+              cursor: 'pointer',
+              opacity: isLoading ? 0.7 : 1
+            }}
+          >
+            {isLoading ? "Logging in..." : "Log In"}
+          </button>
+
+          {/* Social buttons removed as per original design but can be added later */}
+          {/*
+          <div className="social" style={{ marginTop: '30px', display: 'flex' }}>
+            <div style={{ background: 'red', width: '150px', borderRadius: '3px', padding: '5px 10px 10px 5px', backgroundColor: 'rgba(255,255,255,0.27)', color: '#eaf0fb', textAlign: 'center' }}>
+              <i className="fab fa-google" style={{ marginRight: '4px' }}></i> Google
+            </div>
+            <div style={{ background: 'red', width: '150px', borderRadius: '3px', padding: '5px 10px 10px 5px', backgroundColor: 'rgba(255,255,255,0.27)', color: '#eaf0fb', textAlign: 'center', marginLeft: '25px' }}>
+              <i className="fab fa-facebook" style={{ marginRight: '4px' }}></i> Facebook
+            </div>
+          </div>
+          */}
+
+          <div style={{ marginTop: '30px', textAlign: 'center', fontSize: '14px' }}>
+            <p style={{ color: 'hsl(var(--foreground))', marginBottom: '10px' }}>
               Don&apos;t have an account?{" "}
-              <Link href="/register" className="font-medium text-primary hover:underline">
+              <Link href="/register" style={{ color: 'hsl(var(--foreground))', fontWeight: 'bold', textDecoration: 'underline' }}>
                 Register here
               </Link>
             </p>
-            <p className="mt-2">
-              <Link href="/forgot-password" className="font-medium text-primary hover:underline">
+            <p style={{ color: 'hsl(var(--foreground))' }}>
+              <Link href="/forgot-password" style={{ color: 'hsl(var(--foreground))', fontWeight: 'bold', textDecoration: 'underline' }}>
                 Forgot password?
               </Link>
             </p>
           </div>
-        </CardContent>
-      </Card>
+        </Form>
+        </form>
+        </div>
+      </div>
     </div>
+    </>
   );
 }

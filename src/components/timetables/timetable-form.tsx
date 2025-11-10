@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCnCardDescription } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getBranches, getUserProfiles, getSubjects, createTimetable, updateTimetable, getTimetables } from '@/lib/supabase-utils';
 import { useToast } from '@/hooks/use-toast';
 import type { Branch, Semester, TimeTable, TimeTableDaySchedule, TimeTableEntry, DayOfWeek, TimeSlotDescriptor, UserProfile, Subject } from '@/types';
@@ -17,6 +16,7 @@ import { defaultBranches, semesters, daysOfWeek, timeSlotDescriptors, saturdayLa
 import { useAuth } from '@/components/auth-provider';
 import { Loader2, Save, CalendarDays, AlertTriangle } from 'lucide-react';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
+import { supabase } from '@/lib/supabase';
 
 const TIMETABLE_STORAGE_KEY_PREFIX = 'apsconnect_timetable_';
 const BRANCH_STORAGE_KEY = 'apsconnect_managed_branches';
@@ -78,6 +78,38 @@ export function TimetableForm({ role, facultyAssignedBranches, onTimetableUpdate
 
   const availableBranchesForForm = role === 'admin' ? managedBranches : (facultyAssignedBranches || []);
 
+  const saveTimetableDraft = async (branch: string, semester: string, schedule: any) => {
+    if (!user?.uid) return;
+
+    await supabase.from('drafts').upsert({
+      user_id: user.uid,
+      form_id: `timetable_${branch}_${semester}`,
+      data: { branch, semester, schedule },
+      updated_at: new Date().toISOString()
+    });
+  };
+
+  const loadTimetableDraft = async (branch: string, semester: string) => {
+    if (!user?.uid) return null;
+
+    const { data } = await supabase
+      .from('drafts')
+      .select('data')
+      .eq('user_id', user.uid)
+      .eq('form_id', `timetable_${branch}_${semester}`)
+      .single();
+
+    return data?.data || null;
+  };
+
+  const saveManagedBranches = async (branches: Branch[]) => {
+    if (!user?.uid) return;
+
+    await supabase
+      .from('user_preferences')
+      .upsert({ user_id: user.uid, managed_branches: branches }, { onConflict: 'user_id' });
+  };
+
   const form = useForm<TimetableFormValues>({
     resolver: zodResolver(timetableFormSchema),
     defaultValues: {
@@ -91,6 +123,25 @@ export function TimetableForm({ role, facultyAssignedBranches, onTimetableUpdate
   const watchedBranch = useWatch({ control: form.control, name: "branch" });
   const watchedSemester = useWatch({ control: form.control, name: "semester" });
   const watchedSchedule = useWatch({ control: form.control, name: "schedule" });
+
+  // Auto-save drafts when schedule changes
+  useEffect(() => {
+    if (watchedBranch && watchedSemester && watchedSchedule && user?.uid) {
+      const timeoutId = setTimeout(async () => {
+        await saveTimetableDraft(watchedBranch, watchedSemester, watchedSchedule);
+        console.log('💾 Auto-saved timetable draft');
+      }, 2000); // Save after 2 seconds of inactivity
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [watchedBranch, watchedSemester, watchedSchedule, user]);
+
+  // Save managed branches when they change
+  useEffect(() => {
+    if (managedBranches.length > 0 && user?.uid) {
+      saveManagedBranches(managedBranches.map(b => b));
+    }
+  }, [managedBranches, user]);
 
   const { fields } = useFieldArray({
     control: form.control,
@@ -140,7 +191,19 @@ export function TimetableForm({ role, facultyAssignedBranches, onTimetableUpdate
     if (typeof window !== 'undefined') {
         console.log('🔍 Loading timetable for', branch, semester);
 
-        // First try to load from database
+        // 1. First try to load from drafts (Supabase)
+        try {
+          const draftData = await loadTimetableDraft(branch, semester);
+          if (draftData?.schedule) {
+            console.log('✅ Loaded timetable from drafts');
+            form.setValue('schedule', draftData.schedule);
+            return;
+          }
+        } catch (error) {
+          console.error('❌ Failed to load from drafts:', error);
+        }
+
+        // 2. Try to load from database
         try {
           const timetables = await getTimetables({ branch, semester });
           const dbTimetable = timetables.find(t => t.branch === branch && t.semester === semester);
@@ -187,7 +250,7 @@ export function TimetableForm({ role, facultyAssignedBranches, onTimetableUpdate
           console.error('❌ Failed to load from database:', error);
         }
 
-        // Fall back to localStorage
+        // 3. Fall back to localStorage during transition
         const key = `${TIMETABLE_STORAGE_KEY_PREFIX}${branch}_${semester}`;
         const storedData = localStorage.getItem(key);
         let newSchedule = createEmptySchedule();
@@ -241,40 +304,80 @@ export function TimetableForm({ role, facultyAssignedBranches, onTimetableUpdate
 
   useEffect(() => {
     setPageIsLoading(true);
-    const storedBranchesStr = localStorage.getItem(BRANCH_STORAGE_KEY);
-    let branchesToSet = defaultBranches;
-    if (storedBranchesStr) {
+
+    // Load managed branches from Supabase
+    const loadManagedBranchesFromSupabase = async () => {
+      if (!user?.uid) {
+        setManagedBranches(defaultBranches);
+        return defaultBranches;
+      }
+
+      try {
+        const { data } = await supabase
+          .from('user_preferences')
+          .select('managed_branches')
+          .eq('user_id', user.uid)
+          .single();
+
+        if (data?.managed_branches && Array.isArray(data.managed_branches)) {
+          setManagedBranches(data.managed_branches);
+          return data.managed_branches;
+        }
+      } catch (error) {
+        console.error('Error loading branches from Supabase:', error);
+      }
+
+      // Fallback to localStorage during migration
+      const storedBranchesStr = localStorage.getItem(BRANCH_STORAGE_KEY);
+      if (storedBranchesStr) {
         try {
-            const parsed = JSON.parse(storedBranchesStr);
-            if (Array.isArray(parsed) && parsed.length > 0) branchesToSet = parsed;
-        } catch (e) { console.error("Error parsing managed branches:", e); }
-    }
-    setManagedBranches(branchesToSet);
+          const parsed = JSON.parse(storedBranchesStr);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setManagedBranches(parsed);
+            // Migrate to Supabase
+            await supabase
+              .from('user_preferences')
+              .upsert({ user_id: user.uid, managed_branches: parsed }, { onConflict: 'user_id' });
+            return parsed;
+          }
+        } catch (e) {
+          console.error("Error parsing managed branches:", e);
+        }
+      }
 
-    const branchesForRole = role === 'admin' ? branchesToSet : (facultyAssignedBranches || []);
-    const initialBranch = branchesForRole[0];
-    const initialSemester = semesters[0];
+      setManagedBranches(defaultBranches);
+      return defaultBranches;
+    };
 
-    form.reset({
+    const initializeForm = async () => {
+      const branchesToSet = await loadManagedBranchesFromSupabase();
+      const branchesForRole = role === 'admin' ? branchesToSet : (facultyAssignedBranches || []);
+      const initialBranch = branchesForRole[0];
+      const initialSemester = semesters[0];
+
+      form.reset({
         branch: initialBranch,
         semester: initialSemester,
         schedule: createEmptySchedule()
-    });
+      });
 
-    const loadData = async () => {
-      await Promise.all([
-        fetchFaculty(),
-        fetchManagedBranches()
-      ]);
+      const loadData = async () => {
+        await Promise.all([
+          fetchFaculty(),
+          fetchManagedBranches()
+        ]);
 
-      if (initialBranch && initialSemester) {
-        await loadScheduleFor(initialBranch, initialSemester);
-        await loadSubjectsForBranchSemester(initialBranch, initialSemester);
-      }
-      setPageIsLoading(false);
+        if (initialBranch && initialSemester) {
+          await loadScheduleFor(initialBranch, initialSemester);
+          await loadSubjectsForBranchSemester(initialBranch, initialSemester);
+        }
+        setPageIsLoading(false);
+      };
+      loadData();
     };
-    loadData();
-  }, [role, facultyAssignedBranches, loadScheduleFor]);
+
+    initializeForm();
+  }, [role, facultyAssignedBranches, loadScheduleFor, user]);
 
   const onSubmit = async (data: TimetableFormValues) => {
     if (!user) {
@@ -484,75 +587,115 @@ export function TimetableForm({ role, facultyAssignedBranches, onTimetableUpdate
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-                <Table className="min-w-full border-collapse border border-border">
-                    <TableHeader>
-                        <TableRow>
-                        <TableHead className="border border-border p-2 font-semibold bg-muted/50 sticky left-0 z-10 w-[100px] min-w-[100px]">Day</TableHead>
-                        {timeSlotDescriptors.map((descriptor, periodIndex) => (
-                            <TableHead key={periodIndex} className="border border-border p-2 font-semibold bg-muted/50 text-center min-w-[200px]">
-                                {descriptor.label} <br/> <span className="text-xs font-normal">({descriptor.time})</span>
-                            </TableHead>
-                        ))}
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {fields.map((dayField, dayIndex) => (
-                        <TableRow key={dayField.id}>
-                            <TableCell className="border border-border p-2 font-medium bg-muted/30 text-muted-foreground text-xs sm:text-sm sticky left-0 z-10 w-[100px] min-w-[100px]">
-                                {dayField.day}
-                            </TableCell>
-                            {timeSlotDescriptors.map((descriptor, periodIndex) => {
-                              const isSaturday = dayField.day === "Saturday";
-                              const isAfterSaturdayCutoff = isSaturday && periodIndex > saturdayLastSlotIndex;
-                              const isDisabled = isAfterSaturdayCutoff || descriptor.isBreak;
+            <div className="space-y-8">
+              {fields.map((dayField, dayIndex) => (
+                <div key={dayField.id} className="space-y-4">
+                  {/* Day Header */}
+                  <div className="flex items-center gap-3 pb-2 border-b border-border">
+                    <div className="text-lg font-semibold text-primary min-w-[120px]">
+                      {dayField.day}
+                    </div>
+                    <div className="flex-1 h-px bg-border"></div>
+                  </div>
 
-                              return (
-                                <TableCell key={`${dayField.id}-${periodIndex}`} className="border border-border p-1 min-w-[200px] align-top">
-                                  <div className="flex flex-col gap-1">
-                                    {isDisabled ? (
-                                      <Input
-                                          value={descriptor.label}
-                                          className="w-full h-10 text-xs sm:text-sm p-1 sm:p-2 text-center bg-muted"
-                                          disabled
-                                          readOnly
-                                      />
-                                    ) : (
-                                      <>
-                                        <Select
-                                          onValueChange={(subjectId) => handleSubjectSelection(dayIndex, periodIndex, subjectId)}
-                                          value={watchedSchedule?.[dayIndex]?.entries?.[periodIndex]?.subject || "no-class"}
-                                        >
-                                          <SelectTrigger className="w-full h-8 text-xs">
-                                            <SelectValue placeholder="Select subject" />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="no-class">No class</SelectItem>
-                                            {availableSubjects.map(subject => (
-                                              <SelectItem key={subject.id} value={subject.id}>
-                                                {subject.name} ({subject.code}) - {subject.type === 'lab' ? 'Lab' : 'Class'}
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                        <div className="text-xs text-muted-foreground">
-                                          {watchedSchedule?.[dayIndex]?.entries?.[periodIndex]?.faculty_name && (
-                                            <div>👨‍🏫 {watchedSchedule[dayIndex].entries[periodIndex].faculty_name}</div>
-                                          )}
-                                          {watchedSchedule?.[dayIndex]?.entries?.[periodIndex]?.room_number && (
-                                            <div>🏫 Room: {watchedSchedule[dayIndex].entries[periodIndex].room_number}</div>
-                                          )}
+                  {/* Period Cards Grid */}
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {timeSlotDescriptors.map((descriptor, periodIndex) => {
+                      const isSaturday = dayField.day === "Saturday";
+                      const isAfterSaturdayCutoff = isSaturday && periodIndex > saturdayLastSlotIndex;
+                      const isDisabled = isAfterSaturdayCutoff || descriptor.isBreak;
+                      const currentEntry = watchedSchedule?.[dayIndex]?.entries?.[periodIndex];
+
+                      return (
+                        <Card key={`${dayField.id}-${periodIndex}`}
+                              className={`transition-all duration-200 hover:shadow-md ${
+                                descriptor.isBreak
+                                  ? 'bg-muted/30 border-dashed'
+                                  : currentEntry?.type === 'lab'
+                                    ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800'
+                                    : 'bg-card border-border'
+                              } ${isAfterSaturdayCutoff ? 'opacity-50' : ''}`}>
+                          <CardContent className="p-4">
+                            {/* Time and Period Info */}
+                            <div className="flex justify-between items-start mb-3">
+                              <div>
+                                <div className="font-semibold text-sm text-primary">
+                                  {descriptor.label}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {descriptor.time}
+                                </div>
+                              </div>
+                              {currentEntry?.type === 'lab' && (
+                                <div className="text-orange-600 dark:text-orange-400">
+                                  🔬 LAB
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Subject Selection */}
+                            {isDisabled ? (
+                              <div className="text-center py-3">
+                                <div className="text-muted-foreground font-medium text-sm">
+                                  {isAfterSaturdayCutoff ? "-" : descriptor.label}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                <Select
+                                  onValueChange={(subjectId) => handleSubjectSelection(dayIndex, periodIndex, subjectId)}
+                                  value={currentEntry?.subject || "no-class"}
+                                >
+                                  <SelectTrigger className="w-full h-9 text-sm">
+                                    <SelectValue placeholder="Select subject" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="no-class">❌ No class</SelectItem>
+                                    {availableSubjects.map(subject => (
+                                      <SelectItem key={subject.id} value={subject.id}>
+                                        <div className="flex flex-col">
+                                          <span className="font-medium">
+                                            {subject.type === 'lab' ? '🔬' : '📚'} {subject.name}
+                                          </span>
+                                          <span className="text-xs text-muted-foreground">
+                                            {subject.code}
+                                          </span>
                                         </div>
-                                      </>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+
+                                {/* Current Assignment Info */}
+                                {currentEntry?.subject && currentEntry.subject !== "no-class" && (
+                                  <div className="space-y-2 pt-2 border-t border-border/50">
+                                    {currentEntry.faculty_name && (
+                                      <div className="flex items-center gap-2 text-xs">
+                                        <span className="text-blue-600">👨‍🏫</span>
+                                        <span className="text-blue-700 dark:text-blue-300 truncate">
+                                          {currentEntry.faculty_name}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {currentEntry.room_number && (
+                                      <div className="flex items-center gap-2 text-xs">
+                                        <span className="text-green-600">🏫</span>
+                                        <span className="text-green-700 dark:text-green-300">
+                                          Room {currentEntry.room_number}
+                                        </span>
+                                      </div>
                                     )}
                                   </div>
-                                </TableCell>
-                              );
-                            })}
-                        </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
+                                )}
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="pt-6 border-t mt-6">

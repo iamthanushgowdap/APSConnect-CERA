@@ -8,7 +8,7 @@ import type { FundraisingCampaign, StudentFundraisingStatus, UserProfile } from 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { ShieldCheck, ArrowLeft, Users, Percent, Search } from 'lucide-react';
+import { ShieldCheck, ArrowLeft, Users, Percent, Search, RefreshCw } from 'lucide-react';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +33,7 @@ export default function FundraisingStatusPage() {
   const [studentStatuses, setStudentStatuses] = useState<StudentStatus[]>([]);
   const [filteredStatuses, setFilteredStatuses] = useState<StudentStatus[]>([]);
   const [pageLoading, setPageLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [searchTerm, setSearchTerm] = useState('');
 
   const fetchCampaignData = useCallback(async () => {
@@ -69,18 +70,32 @@ export default function FundraisingStatusPage() {
         currentAmount: campaignData.currentAmount,
       };
 
+      console.log('✅ Campaign fetched successfully:', {
+        id: campaign.id,
+        title: campaign.title,
+        createdByUid: campaign.createdByUid,
+        currentUserUid: user.uid,
+        uidsMatch: campaign.createdByUid === user.uid
+      });
+
       setCampaign(campaign);
 
-      // Fetch student statuses for this campaign
+      // Fetch student statuses from Supabase
+      console.log('🔍 About to fetch student statuses for campaign:', campaignId);
+      console.log('👤 Current faculty user UID:', user.uid);
+
       const { data: statusData, error: statusError } = await supabase
         .from('student_fundraising_status')
         .select('*')
         .eq('campaign_id', campaignId);
 
       if (statusError) {
-        console.error('Error fetching statuses:', statusError);
+        console.error('❌ Error fetching statuses:', statusError);
         return;
       }
+
+      console.log('✅ Query completed - Fetched status data:', statusData);
+      console.log('📊 Status data length:', statusData?.length || 0);
 
       // Get unique student UIDs from statuses
       const studentUids = [...new Set((statusData || []).map(s => s.student_uid))];
@@ -91,18 +106,10 @@ export default function FundraisingStatusPage() {
         .select('*')  // Get all fields to see what's available
         .in('id', studentUids);
 
-      if (profileError) {
-        console.error('Error fetching student profiles:', profileError);
-        return;
-      }
-
-      console.log('Campaign status: Fetched student profiles:', studentProfiles);
-
       // Create a map of student profiles for easy lookup
       const profileMap = new Map();
       (studentProfiles || []).forEach(profile => {
         profileMap.set(profile.id, profile);
-        console.log('Full profile for', profile.id, ':', profile);
       });
 
       // Enrich statuses with student information
@@ -122,6 +129,7 @@ export default function FundraisingStatusPage() {
       }).sort((a, b) => a.studentUsn.localeCompare(b.studentUsn));
 
       setStudentStatuses(enrichedStatuses);
+      setLastUpdated(new Date()); // Update timestamp when data is refreshed
 
     } catch (error) {
       console.error('Error in fetchCampaignData:', error);
@@ -129,16 +137,44 @@ export default function FundraisingStatusPage() {
     }
   }, [campaignId, user, router]);
 
+  const handleStatusUpdate = useCallback(() => {
+    fetchCampaignData();
+  }, [fetchCampaignData]);
+
   useEffect(() => {
-    if (!authLoading) {
-      if (!user || user.role !== 'faculty') {
-        router.push('/dashboard');
-      } else {
-        fetchCampaignData();
-        setPageLoading(false);
-      }
+    if (!authLoading && user && user.role === 'faculty' && campaignId) {
+      fetchCampaignData();
+
+      // Set up real-time subscription for student status updates
+      const statusChannel = supabase
+        .channel(`fundraising_status_${campaignId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // Listen to INSERT, UPDATE, DELETE
+            schema: 'public',
+            table: 'student_fundraising_status',
+            filter: `campaign_id=eq.${campaignId}`,
+          },
+          (payload) => {
+            // Real-time status update received
+            handleStatusUpdate();
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            // Successfully subscribed to fundraising status updates
+          }
+        });
+
+      setPageLoading(false);
+
+      // Cleanup subscription on unmount
+      return () => {
+        supabase.removeChannel(statusChannel);
+      };
     }
-  }, [user, authLoading, router, fetchCampaignData]);
+  }, [authLoading, user, campaignId, handleStatusUpdate]);
 
   useEffect(() => {
       if(!searchTerm) {
@@ -182,8 +218,24 @@ export default function FundraisingStatusPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary">{campaign.title}</h1>
           <CardDescription>Contribution Status</CardDescription>
+          <p className="text-xs text-muted-foreground mt-1">
+            Last updated: {lastUpdated.toLocaleString()}
+          </p>
         </div>
-        <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back"><ArrowLeft className="h-5 w-5" /></Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => fetchCampaignData()} 
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+          <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        </div>
       </div>
 
       <Card className="mb-8">

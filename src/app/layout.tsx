@@ -2,10 +2,15 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
-import { Navbar } from '@/components/layout/navbar';
+import { NewNavbar } from '@/components/layout/new-navbar';
 import { Footer } from '@/components/layout/footer';
 import { AuthProvider } from '@/components/auth-provider';
 import { SiteConfig } from '@/config/site';
+import { StorageInitializer } from '@/components/storage-initializer';
+import { ConditionalFooter } from '@/components/layout/conditional-footer';
+import { AppErrorBoundary } from '@/components/error-boundary';
+import { PerformanceMonitor } from '@/components/performance/performance-monitor';
+import { RoutePreloader } from '@/components/performance/route-preloader';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -60,13 +65,18 @@ export default function RootLayout({
         />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col min-h-screen bg-background text-foreground`}>
-        <AuthProvider>
-          <Navbar />
-          <main className="flex-grow">
-            {children}
-          </main>
-          <Footer />
-        </AuthProvider>
+        <AppErrorBoundary>
+          <AuthProvider>
+            <StorageInitializer />
+            <RoutePreloader />
+            <PerformanceMonitor />
+            <NewNavbar />
+            <main className="flex-grow">
+              {children}
+            </main>
+            <ConditionalFooter />
+          </AuthProvider>
+        </AppErrorBoundary>
         <Toaster />
       </body>
     </html>

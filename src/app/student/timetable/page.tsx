@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useEffect, useState } from 'react';
@@ -6,11 +5,14 @@ import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import type { TimeTable, Branch, Semester } from '@/types';
 import { TimetableView } from '@/components/timetables/timetable-view';
+import ParticleBackground from "@/components/ui/particle-background"; 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; 
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { ShieldCheck, AlertTriangle, Info, ArrowLeft } from 'lucide-react';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
+import { getTimetable } from '@/lib/supabase-utils';
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const TIMETABLE_STORAGE_KEY_PREFIX = 'apsconnect_timetable_';
 
@@ -22,7 +24,7 @@ export default function StudentTimetablePage() {
   const [studentDetails, setStudentDetails] = useState<{branch?: Branch, semester?: Semester, isProfileComplete: boolean}>({ isProfileComplete: false });
 
   useEffect(() => {
-    if (!authLoading) {
+    const fetchStudentData = async () => {
       if (!user || (user.role !== 'student' && user.role !== 'pending')) {
         router.push(user ? '/dashboard' : '/login');
         return;
@@ -42,21 +44,32 @@ export default function StudentTimetablePage() {
       
       if (user.role === 'student' && isProfileCompleteForTimetable && user.branch && user.semester) {
         if (typeof window !== 'undefined') {
-          const key = `${TIMETABLE_STORAGE_KEY_PREFIX}${user.branch}_${user.semester}`;
-          const storedData = localStorage.getItem(key);
-          if (storedData) {
-            try {
-              setTimetable(JSON.parse(storedData));
-            } catch (error) {
-              console.error("Error parsing timetable for student:", error);
-              setTimetable(null);
+          try {
+            const timetableData = await getTimetable(user.branch, user.semester);
+            setTimetable(timetableData);
+          } catch (error: any) {
+            console.error('Error loading timetable from database:', error);
+
+            // Provide user feedback for different error types
+            if (error?.message?.includes('Network error')) {
+              console.warn('⚠️ Network connectivity issue - timetable will show empty state');
+            } else if (error?.message?.includes('Database error')) {
+              console.warn('⚠️ Database access issue - timetable will show empty state');
+            } else {
+              console.warn('⚠️ Unexpected error loading timetable - timetable will show empty state');
             }
-          } else {
-            setTimetable(null); 
+
+            setTimetable(null);
           }
         }
+        setPageLoading(false);
+        return;
       }
       setPageLoading(false);
+    };
+
+    if (!authLoading) {
+      fetchStudentData();
     }
   }, [user, authLoading, router]);
 
@@ -117,18 +130,24 @@ export default function StudentTimetablePage() {
 
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="mb-6">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex items-center gap-4 mb-6 relative z-10">
         <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back">
             <ArrowLeft className="h-5 w-5" />
         </Button>
       </div>
-      <TimetableView 
-        timetable={timetable} 
-        isLoading={pageLoading} 
-        studentBranch={studentDetails.branch}
-        studentSemester={studentDetails.semester}
-      />
+
+      <ScrollArea>
+        <TimetableView 
+          timetable={timetable} 
+          isLoading={pageLoading} 
+          studentBranch={studentDetails.branch}
+          studentSemester={studentDetails.semester}
+        />
+      </ScrollArea>
     </div>
   );
 }

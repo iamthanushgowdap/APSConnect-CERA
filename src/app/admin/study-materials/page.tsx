@@ -6,7 +6,8 @@ import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import { StudyMaterialForm } from '@/components/study-materials/study-material-form';
 import type { StudyMaterial, Branch, Semester } from '@/types';
-import { STUDY_MATERIAL_STORAGE_KEY, defaultBranches, semesters } from '@/types';
+import { semesters, defaultBranches } from '@/types';
+import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCnCardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -57,15 +58,20 @@ export default function AdminStudyMaterialsPage() {
       const branchList = await getBranches();
       setManagedBranches(branchList);
 
-      // Load study materials from localStorage (keeping this local for now)
-      if (typeof window !== 'undefined') {
-        const storedMaterials = localStorage.getItem(STUDY_MATERIAL_STORAGE_KEY);
-        const materials: StudyMaterial[] = storedMaterials ? JSON.parse(storedMaterials) : [];
-        setAllMaterials(materials.sort((a,b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()));
+      // Fetch all study materials from Supabase
+      const { data: materials, error } = await supabase
+        .from('study_materials')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching materials:', error);
+        setAllMaterials([]);
+      } else {
+        setAllMaterials(materials || []);
       }
     } catch (error) {
       console.error('Error fetching initial data:', error);
-      // Fallback to defaults
       setManagedBranches(defaultBranches);
       setAllMaterials([]);
     }
@@ -73,7 +79,7 @@ export default function AdminStudyMaterialsPage() {
 
   useEffect(() => {
     if (!authLoading) {
-      if (!user || user.role !== 'admin') {
+      if (!user || (user.role !== 'admin' && user.role !== 'faculty' && user.role !== 'student' && user.role !== 'alumni')) {
         router.push(user ? '/dashboard' : '/login');
       } else {
         fetchInitialData();
@@ -82,8 +88,32 @@ export default function AdminStudyMaterialsPage() {
     }
   }, [user, authLoading, router, fetchInitialData]);
   
+  // Check if user can upload materials (admin or faculty only)
+  const canUpload = user?.role === 'admin' || user?.role === 'faculty';
+
+  // Filter materials based on user role
+  const getFilteredMaterials = () => {
+    if (!user) return [];
+    if (user.role === 'admin') {
+      return allMaterials; // Admin can see all materials
+    } else if (user.role === 'faculty' && user.assignedBranches) {
+      // Faculty can see materials for their assigned branches
+      return allMaterials.filter(material => 
+        user.assignedBranches?.includes(material.branch)
+      );
+    } else if ((user.role === 'student' || user.role === 'alumni') && user.branch) {
+      // Students can see materials for their branch and semester
+      return allMaterials.filter(material => 
+        material.branch === user.branch && material.semester === user.semester
+      );
+    }
+    return [];
+  };
+
+  const accessibleMaterials = getFilteredMaterials();
+
   useEffect(() => {
-    let currentMaterials = [...allMaterials];
+    let currentMaterials = [...accessibleMaterials];
     if (filterBranch !== 'all') {
       currentMaterials = currentMaterials.filter(m => m.branch === filterBranch);
     }
@@ -95,28 +125,23 @@ export default function AdminStudyMaterialsPage() {
       currentMaterials = currentMaterials.filter(m => 
         m.title.toLowerCase().includes(termLower) ||
         m.description?.toLowerCase().includes(termLower) ||
-        m.uploadedByDisplayName.toLowerCase().includes(termLower) ||
+        m.uploaded_by_display_name.toLowerCase().includes(termLower) ||
         m.attachments.some(att => att.name.toLowerCase().includes(termLower))
       );
     }
     setFilteredMaterials(currentMaterials);
-  }, [allMaterials, filterBranch, filterSemester, searchTerm]);
+  }, [accessibleMaterials, filterBranch, filterSemester, searchTerm]);
 
   const handleFormSubmitSuccess = (material: StudyMaterial) => {
-    const existingIndex = allMaterials.findIndex(m => m.id === material.id);
-    let updatedMaterials;
-    if (existingIndex > -1) {
-      updatedMaterials = [...allMaterials];
-      updatedMaterials[existingIndex] = material;
-    } else {
-      updatedMaterials = [material, ...allMaterials];
-    }
-    setAllMaterials(updatedMaterials);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STUDY_MATERIAL_STORAGE_KEY, JSON.stringify(updatedMaterials));
-    }
+    // Refresh the materials list from Supabase
+    fetchInitialData();
     setIsFormDialogOpen(false);
     setEditingMaterial(null);
+    toast({
+      title: "Success",
+      description: `Material "${material.title}" ${editingMaterial ? 'updated' : 'created'} successfully.`,
+      duration: 3000
+    });
   };
 
   const openEditDialog = (material: StudyMaterial) => {
@@ -133,14 +158,40 @@ export default function AdminStudyMaterialsPage() {
     setMaterialToDelete(material);
   };
 
-  const handleDeleteMaterial = () => {
+  const handleDeleteMaterial = async () => {
     if (!materialToDelete) return;
-    const updatedMaterials = allMaterials.filter(m => m.id !== materialToDelete.id);
-    setAllMaterials(updatedMaterials);
-     if (typeof window !== 'undefined') {
-      localStorage.setItem(STUDY_MATERIAL_STORAGE_KEY, JSON.stringify(updatedMaterials));
+
+    try {
+      const { error } = await supabase
+        .from('study_materials')
+        .delete()
+        .eq('id', materialToDelete.id);
+
+      if (error) {
+        console.error('Error deleting material:', error);
+        toast({
+          title: "Error",
+          description: "Failed to delete the material.",
+          variant: "destructive"
+        });
+      } else {
+        // Refresh the materials list
+        fetchInitialData();
+        toast({
+          title: "Success",
+          description: `Material "${materialToDelete.title}" deleted.`,
+          duration: 3000
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting material:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete the material.",
+        variant: "destructive"
+      });
     }
-    toast({ title: "Success", description: `Material "${materialToDelete.title}" deleted.`, duration: 3000 });
+
     setMaterialToDelete(null);
   };
   
@@ -165,7 +216,7 @@ export default function AdminStudyMaterialsPage() {
     );
   }
 
-  if (!user || user.role !== 'admin') {
+  if (!user || (user.role !== 'admin' && user.role !== 'faculty' && user.role !== 'student' && user.role !== 'alumni')) {
     return (
       <div className="container mx-auto px-4 py-8 text-center">
         <Card className="max-w-md mx-auto shadow-lg">
@@ -187,9 +238,11 @@ export default function AdminStudyMaterialsPage() {
             <BookOpen className="mr-3 h-7 w-7" /> Study Material Management
         </h1>
         <div className="flex items-center gap-2">
-            <Button onClick={openCreateDialog}>
-                <PlusCircle className="mr-2 h-4 w-4" /> Upload New Material
-            </Button>
+            {canUpload && (
+              <Button onClick={openCreateDialog}>
+                  <PlusCircle className="mr-2 h-4 w-4" /> Upload New Material
+              </Button>
+            )}
             <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back">
                 <ArrowLeft className="h-5 w-5" />
             </Button>
@@ -275,8 +328,8 @@ export default function AdminStudyMaterialsPage() {
                           </div>
                         ))}
                       </TableCell>
-                      <TableCell>{material.uploadedByDisplayName}</TableCell>
-                      <TableCell>{format(new Date(material.uploadedAt), "PPp")}</TableCell>
+                      <TableCell>{material.uploaded_by_display_name}</TableCell>
+                      <TableCell>{format(new Date(material.created_at), "PPp")}</TableCell>
                       <TableCell className="text-right space-x-2">
                           <Button variant="outline" size="sm" onClick={() => openEditDialog(material)} aria-label={`Edit material ${material.title}`}>
                               <Edit3 className="h-3 w-3 mr-1 sm:mr-2" /> <span className="hidden sm:inline">Edit</span>

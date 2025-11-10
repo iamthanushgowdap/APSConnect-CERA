@@ -27,6 +27,7 @@ import { ShieldCheck, HandCoins, Info, AlertTriangle, ArrowLeft, QrCode } from '
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { useToast } from '@/hooks/use-toast';
 import { format, isBefore, isAfter } from 'date-fns';
+import ParticleBackground from "@/components/ui/particle-background";
 
 export default function StudentFundraisingPage() {
   const { user, isLoading: authLoading } = useAuth();
@@ -101,16 +102,20 @@ export default function StudentFundraisingPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!authLoading) {
-      if (!user || (user.role !== 'student' && user.role !== 'pending')) {
-        router.push(user ? '/dashboard' : '/login');
-      } else if (user.role === 'pending' && user.rejectionReason) {
-        router.push('/student');
-      } else {
-        fetchCampaignsAndStatus();
-        setPageLoading(false);
+    const loadData = async () => {
+      if (!authLoading) {
+        if (!user || (user.role !== 'student' && user.role !== 'pending')) {
+          router.push(user ? '/dashboard' : '/login');
+        } else if (user.role === 'pending' && user.rejectionReason) {
+          router.push('/student');
+        } else {
+          await fetchCampaignsAndStatus();
+          setPageLoading(false);
+        }
       }
-    }
+    };
+
+    loadData();
   }, [user, authLoading, router, fetchCampaignsAndStatus]);
 
   const openStatusModal = (campaign: FundraisingCampaign) => {
@@ -229,21 +234,29 @@ export default function StudentFundraisingPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-8">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex justify-between items-center mb-8 relative z-10">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center"><HandCoins className="mr-3 h-7 w-7" /> Fundraising Campaigns</h1>
         <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back"><ArrowLeft className="h-5 w-5" /></Button>
       </div>
       
       {campaigns.length === 0 ? (
-        <Card><CardContent className="p-10 text-center text-muted-foreground"><Info className="mx-auto h-12 w-12 mb-4" /><p>There are no active fundraising campaigns for your branch right now.</p></CardContent></Card>
+        <Card className="relative z-10">
+          <CardContent className="p-10 text-center text-muted-foreground">
+            <Info className="mx-auto h-12 w-12 mb-4" />
+            <p>There are no active fundraising campaigns for your branch right now.</p>
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {campaigns.map(campaign => {
             const status = getCampaignStatus(campaign);
             const myStatus = studentStatuses[campaign.id]?.status || 'pending';
             return (
-              <Card key={campaign.id} className="shadow-lg flex flex-col">
+              <Card key={campaign.id} className="shadow-lg flex flex-col relative z-10">
                 <CardHeader>
                   <div className="flex justify-between items-start">
                     <CardTitle>{campaign.title}</CardTitle>

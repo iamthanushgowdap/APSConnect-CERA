@@ -96,6 +96,25 @@ export default function IndividualPostPage() {
 
   const postId = params?.postId as string;
 
+  const goToDashboard = () => {
+    if (!user) return;
+    
+    // Navigate to role-specific dashboard
+    switch (user.role) {
+      case 'admin':
+        router.push('/admin');
+        break;
+      case 'faculty':
+        router.push('/faculty');
+        break;
+      case 'student':
+      case 'alumni':
+      default:
+        router.push('/student');
+        break;
+    }
+  };
+
   const fetchPost = useCallback(() => {
     if (!postId) {
       setError("Post ID is missing.");
@@ -275,7 +294,7 @@ export default function IndividualPostPage() {
 
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
-        <Button variant="outline" size="icon" onClick={() => router.back()} className="mb-6" aria-label="Go back to previous page">
+        <Button variant="outline" size="icon" onClick={goToDashboard} className="mb-6" aria-label="Go back to previous page">
             <ArrowLeft className="h-4 w-4" />
         </Button>
         <Card className="shadow-xl rounded-lg overflow-hidden">

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { FeeRecordForm } from '@/components/fees/fee-record-form';
 import type { FeeRecord, UserProfile, Branch, Semester, FeeStatus } from '@/types';
 import { semesters, feeStatuses } from '@/types';
+import ParticleBackground from "@/components/ui/particle-background";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCnCardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -130,7 +131,6 @@ export default function AdminFeeManagementPage() {
         paid_amount: record.total_amount,
         payment_status: 'paid',
         paid_at: new Date().toISOString(),
-        posted_at: new Date().toISOString(), // added posted_at column
       });
       const updatedRecords = allFeeRecords.map(r => r.id === record.id ? updatedRecord : r);
       setAllFeeRecords(updatedRecords);
@@ -146,8 +146,11 @@ export default function AdminFeeManagementPage() {
   if (!user || user.role !== 'admin') return <div className="container mx-auto px-4 py-8 text-center"><Card className="max-w-md mx-auto shadow-lg"><CardHeader><CardTitle className="text-destructive">Access Denied</CardTitle></CardHeader><CardContent><ShieldCheck className="h-16 w-16 text-destructive mx-auto mb-4" /><p>You do not have permission to view this page.</p><Link href="/dashboard"><Button variant="outline" className="mt-6">Go to Dashboard</Button></Link></CardContent></Card></div>;
 
   return (
-    <div className="container mx-auto px-4 py-8">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex justify-between items-center mb-4 relative z-10">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center"><CreditCard className="mr-3 h-7 w-7" /> Fee Management</h1>
             <div className="flex items-center gap-2">
                 <Button onClick={() => { setEditingRecord(null); setIsFormDialogOpen(true); }}><PlusCircle className="mr-2 h-4 w-4" /> New Fee Record</Button>
@@ -190,12 +193,16 @@ export default function AdminFeeManagementPage() {
                                 <TableCell>{rec.paid_at ? format(new Date(rec.paid_at), "PP") : 'N/A'}</TableCell>
                                 <TableCell className="text-right space-x-1">
                                     {rec.payment_status !== 'paid' && (
-                                        <Button variant="default" size="sm" onClick={() => markAsPaid(rec)}>
-                                            <CheckCircle className="mr-1 h-3 w-3" /> Mark Paid
+                                        <Button variant="default" size="icon" onClick={() => markAsPaid(rec)} aria-label="Mark as paid">
+                                            <CheckCircle className="h-4 w-4" />
                                         </Button>
                                     )}
-                                    <Button variant="outline" size="sm" onClick={() => { setEditingRecord(rec); setIsFormDialogOpen(true); }}><Edit className="mr-1 h-3 w-3" />Edit</Button>
-                                    <Button variant="destructive" size="sm" onClick={() => confirmDelete(rec)}><Trash2 className="mr-1 h-3 w-3" />Delete</Button>
+                                    <Button variant="outline" size="icon" onClick={() => { setEditingRecord(rec); setIsFormDialogOpen(true); }} aria-label="Edit fee record">
+                                        <Edit className="h-4 w-4" />
+                                    </Button>
+                                    <Button variant="destructive" size="icon" onClick={() => confirmDelete(rec)} aria-label="Delete fee record">
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
                                 </TableCell>
                             </TableRow>
                             );

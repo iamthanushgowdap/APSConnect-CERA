@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { Newspaper, LayoutDashboard, Settings, UserCircle, BarChart3, FilePlus2, Users, Home, CalendarClock, Search, BookOpen, CreditCard, MessageSquareWarning, ListChecks, Sparkles } from 'lucide-react';
+import { Newspaper, LayoutDashboard, Settings, UserCircle, BarChart3, FilePlus2, Users, Home, CalendarClock, Search, BookOpen, CreditCard, MessageSquareWarning, ListChecks, Sparkles, Crown, Bot } from 'lucide-react';
 import React from 'react'; 
 
 // Redefine NavItem here if it's specific to SiteConfig or ensure it's imported correctly
@@ -12,6 +12,7 @@ export type NavItem = {
   adminOnly?: boolean; 
   facultyOnly?: boolean; 
   studentOnly?: boolean; 
+  alumniOnly?: boolean;
   hideWhenLoggedIn?: boolean; 
   icon?: LucideIcon;
 };
@@ -40,6 +41,52 @@ export const SiteConfigData: SiteConfig = {
       studentOnly: true, 
       icon: LayoutDashboard,
       hideWhenLoggedIn: false, 
+    },
+    {
+      title: "Faculty Dashboard",
+      href: "/faculty",
+      protected: true,
+      facultyOnly: true,
+      icon: LayoutDashboard,
+      hideWhenLoggedIn: false, 
+    },
+    {
+      title: "Admin Dashboard",
+      href: "/admin",
+      protected: true,
+      adminOnly: true,
+      icon: LayoutDashboard,
+      hideWhenLoggedIn: false, 
+    },
+    {
+      title: "Alumni Portal",
+      href: "/alumni",
+      protected: true,
+      alumniOnly: true,
+      icon: Crown,
+      hideWhenLoggedIn: false, 
+    },
+    {
+      title: "CERA AI",
+      href: "/cera",
+      protected: true,
+      studentOnly: true,
+      icon: Bot,
+      hideWhenLoggedIn: false,
+    },
+    {
+      title: "Profiles",
+      href: "/profiles",
+      protected: true,
+      icon: Users,
+      hideWhenLoggedIn: false,
+    },
+    {
+      title: "Clubs",
+      href: "/clubs",
+      protected: true,
+      icon: Newspaper,
+      hideWhenLoggedIn: false,
     },
   ],
   footerNav: [ 

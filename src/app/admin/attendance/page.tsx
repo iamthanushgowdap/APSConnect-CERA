@@ -6,6 +6,7 @@ import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import type { AttendanceRecord, Branch, Semester, UserProfile } from '@/types';
 import { ATTENDANCE_STORAGE_KEY, defaultBranches, semesters } from '@/types';
+import ParticleBackground from "@/components/ui/particle-background";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -123,8 +124,11 @@ export default function AdminAttendanceAnalyticsPage() {
       );
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4 relative z-10">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center"><UserCheck className="mr-3 h-7 w-7" /> Attendance Analytics</h1>
         <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back"><ArrowLeft className="h-5 w-5" /></Button>
       </div>
@@ -174,19 +178,34 @@ export default function AdminAttendanceAnalyticsPage() {
         <CardContent>
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader><TableRow><TableHead>Student</TableHead><TableHead>USN</TableHead><TableHead>Date</TableHead><TableHead>Subject</TableHead><TableHead>Period</TableHead><TableHead>Status</TableHead><TableHead>Marked By</TableHead></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="min-w-[150px]">Student</TableHead>
+                  <TableHead className="hidden sm:table-cell min-w-[100px]">USN</TableHead>
+                  <TableHead className="min-w-[120px]">Date</TableHead>
+                  <TableHead className="min-w-[120px]">Subject</TableHead>
+                  <TableHead className="hidden md:table-cell min-w-[80px]">Period</TableHead>
+                  <TableHead className="min-w-[100px]">Status</TableHead>
+                  <TableHead className="hidden lg:table-cell min-w-[150px]">Marked By</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
                 {filteredRecords.length > 0 ? filteredRecords.map(rec => {
                   const student = allStudents.find(s => s.id === rec.studentUid);
                   return (
                   <TableRow key={rec.id}>
-                    <TableCell>{student?.full_name || rec.studentName || 'Unknown Student'}</TableCell>
-                    <TableCell>{student?.student_id || rec.studentUsn || 'N/A'}</TableCell>
-                    <TableCell>{format(new Date(rec.date), 'PPP')}</TableCell>
-                    <TableCell>{rec.subject}</TableCell>
-                    <TableCell>{rec.period}</TableCell>
+                    <TableCell className="font-medium">
+                      <div>
+                        <div>{student?.full_name || rec.studentName || 'Unknown Student'}</div>
+                        <div className="text-xs text-muted-foreground sm:hidden">{student?.student_id || rec.studentUsn || 'N/A'}</div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">{student?.student_id || rec.studentUsn || 'N/A'}</TableCell>
+                    <TableCell className="text-sm">{format(new Date(rec.date), 'MMM d, yyyy')}</TableCell>
+                    <TableCell className="text-sm">{rec.subject}</TableCell>
+                    <TableCell className="hidden md:table-cell text-center">{rec.period}</TableCell>
                     <TableCell><Badge variant={rec.status === 'present' ? 'default' : 'destructive'} className="capitalize">{rec.status}</Badge></TableCell>
-                    <TableCell>{allStudents.find(s=>s.id === rec.markedByUid)?.full_name || rec.markedByUid}</TableCell>
+                    <TableCell className="hidden lg:table-cell text-sm">{allStudents.find(s=>s.id === rec.markedByUid)?.full_name || rec.markedByUid}</TableCell>
                   </TableRow>
                   );
                 }) : <TableRow><TableCell colSpan={7} className="text-center h-24">No records found for the selected filters.</TableCell></TableRow>}

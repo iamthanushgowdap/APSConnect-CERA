@@ -14,8 +14,9 @@ import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { ShieldCheck, UserCheck, Info, AlertTriangle, Search, ArrowLeft, Calendar, TrendingUp, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { ScreenTimeCard } from "@/components/screen-time-card";
 import { format } from 'date-fns';
+import ParticleBackground from "@/components/ui/particle-background";
 
 interface SubjectAttendance {
   subject: string;
@@ -52,12 +53,30 @@ export default function StudentAttendancePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPeriod, setSelectedPeriod] = useState<'all' | 'this_month' | 'last_month'>('all');
 
+  const goToDashboard = () => {
+    if (!user) return;
+    
+    // Navigate to role-specific dashboard
+    switch (user.role) {
+      case 'admin':
+        router.push('/admin');
+        break;
+      case 'faculty':
+        router.push('/faculty');
+        break;
+      case 'student':
+      case 'alumni':
+      default:
+        router.push('/student');
+        break;
+    }
+  };
+
   const fetchAttendanceData = useCallback(async () => {
     if (!user?.uid) return;
 
     try {
-      console.log('📊 Fetching attendance data for UUID:', user.uid);
-      const records = await getAttendance(user.uid);
+      const records = await getAttendance({ student_uid: user.uid });
       console.log('📈 Retrieved', records.length, 'attendance records');
 
       // Sort by date descending
@@ -68,42 +87,28 @@ export default function StudentAttendancePage() {
       setAttendanceRecords(sortedRecords);
     } catch (error) {
       console.error('❌ Error fetching attendance data:', error);
-      console.log('🎯 ATTENDANCE PAGE LOADED - Initial user object:', {
-        userExists: !!user,
-        authLoading,
-        userUid: user?.uid,
-        userRole: user?.role,
-        userUsn: user?.usn,
-        userBranch: user?.branch,
-        userSemester: user?.semester,
-        userEmail: user?.email
-      });
       setAttendanceRecords([]);
     }
   }, [user?.usn]);
 
   useEffect(() => {
-    console.log('👤 ATTENDANCE PAGE - User object changed:', {
-      userExists: !!user,
-      userUid: user?.uid,
-      userUsn: user?.usn,
-      userBranch: user?.branch,
-      userSemester: user?.semester,
-      authLoading
-    });
   }, [user, authLoading]);
 
   useEffect(() => {
-    if (!authLoading) {
-      if (user && (user.role === 'student' || user.role === 'pending')) {
-        if (user.uid) {
-          fetchAttendanceData();
+    const loadData = async () => {
+      if (!authLoading) {
+        if (user && (user.role === 'student' || user.role === 'pending')) {
+          if (user.uid) {
+            await fetchAttendanceData();
+          }
+          setPageLoading(false);
+        } else {
+          router.push(user ? '/dashboard' : '/login');
         }
-        setPageLoading(false);
-      } else {
-        router.push(user ? '/dashboard' : '/login');
       }
-    }
+    };
+
+    loadData();
   }, [user, authLoading, router, fetchAttendanceData]);
 
   // Filter records based on search and period
@@ -227,6 +232,66 @@ export default function StudentAttendancePage() {
     ].filter(item => item.value > 0);
   }, [attendanceStats]);
 
+  // Prepare data for attendance trend chart
+  const attendanceTrendData = useMemo(() => {
+    const last30Days = Array.from({ length: 30 }, (_, i) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (29 - i));
+      return date.toISOString().split('T')[0];
+    });
+
+    return last30Days.map(date => {
+      const dayRecords = attendanceRecords.filter(record => record.date === date);
+      const present = dayRecords.filter(r => r.status === 'present').length;
+      const total = dayRecords.length;
+      const percentage = total > 0 ? (present / total) * 100 : 0; // Default to 0 instead of null
+
+      return {
+        date: format(new Date(date), 'MMM dd'),
+        attendance: percentage, // Now always a number
+        classes: total,
+        present: present
+      };
+    }).filter(item => item.classes > 0); // Only show days with classes
+  }, [attendanceRecords]);
+
+  // Prepare data for monthly attendance comparison
+  const monthlyAttendanceData = useMemo(() => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const currentYear = new Date().getFullYear();
+
+    return months.map((month, index) => {
+      const monthRecords = attendanceRecords.filter(record => {
+        const recordDate = new Date(record.date);
+        return recordDate.getMonth() === index && recordDate.getFullYear() === currentYear;
+      });
+
+      const present = monthRecords.filter(r => r.status === 'present').length;
+      const total = monthRecords.length;
+      const percentage = total > 0 ? Math.round((present / total) * 100) : 0;
+
+      return {
+        month: month,
+        attendance: percentage,
+        classes: total,
+        present: present
+      };
+    }).filter(item => item.classes > 0); // Only show months with data
+  }, [attendanceRecords]);
+
+  // Prepare data for subject performance donut chart (top 5 subjects)
+  const subjectPerformanceData = useMemo(() => {
+    return subjectWiseAttendance
+      .slice(0, 5) // Top 5 subjects
+      .map((subject, index) => ({
+        name: subject.subject.length > 15 ? subject.subject.substring(0, 15) + '...' : subject.subject,
+        value: subject.percentage,
+        present: subject.present,
+        total: subject.total,
+        color: CHART_COLORS[index % CHART_COLORS.length]
+      }));
+  }, [subjectWiseAttendance]);
+
   const getStatusBadge = (status: string) => {
     const variants = {
       present: 'default',
@@ -242,13 +307,8 @@ export default function StudentAttendancePage() {
   };
 
   const getSubjectStatusColor = (status: SubjectAttendance['status']) => {
-    const colors = {
-      excellent: 'text-green-600 bg-green-50 border-green-200',
-      good: 'text-blue-600 bg-blue-50 border-blue-200',
-      average: 'text-yellow-600 bg-yellow-50 border-yellow-200',
-      poor: 'text-red-600 bg-red-50 border-red-200'
-    };
-    return colors[status];
+    // Return only glass effect styling, no status-specific colors
+    return 'text-foreground';
   };
 
   if (pageLoading || authLoading) {
@@ -330,9 +390,12 @@ export default function StudentAttendancePage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 relative z-10">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center">
             <UserCheck className="mr-3 h-7 w-7" />
@@ -342,14 +405,14 @@ export default function StudentAttendancePage() {
             Track your attendance across all subjects and periods
           </p>
         </div>
-        <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back">
+        <Button variant="outline" size="icon" onClick={goToDashboard} aria-label="Go back">
           <ArrowLeft className="h-5 w-5" />
         </Button>
       </div>
 
       {/* Quick Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <Card className="shadow-lg">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 relative z-10">
+        <Card className="shadow-2xl border-white/10 bg-white/5 dark:bg-black/5 backdrop-blur-xl">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -361,7 +424,7 @@ export default function StudentAttendancePage() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-lg">
+        <Card className="shadow-2xl border-white/10 bg-white/5 dark:bg-black/5 backdrop-blur-xl">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -373,7 +436,7 @@ export default function StudentAttendancePage() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-lg">
+        <Card className="shadow-2xl border-white/10 bg-white/5 dark:bg-black/5 backdrop-blur-xl">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -384,115 +447,54 @@ export default function StudentAttendancePage() {
             </div>
           </CardContent>
         </Card>
-
-        <Card className="shadow-lg">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Overall %</p>
-                <p className={`text-2xl font-bold ${
-                  attendanceStats.overallPercentage >= 75 ? 'text-green-600' :
-                  attendanceStats.overallPercentage >= 60 ? 'text-yellow-600' : 'text-red-600'
-                }`}>
-                  {Math.round(attendanceStats.overallPercentage)}%
-                </p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-primary" />
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
-      {/* Overall Attendance Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        <Card className="shadow-lg">
-          <CardHeader>
-            <CardTitle>Overall Attendance</CardTitle>
-            <CardDescription>
-              Your attendance percentage: <strong>{Math.round(attendanceStats.overallPercentage)}%</strong>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4">
-              <Progress
-                value={attendanceStats.overallPercentage}
-                className="h-4"
-                indicatorClassName={
-                  attendanceStats.overallPercentage >= 75 ? "bg-green-500" :
-                  attendanceStats.overallPercentage >= 60 ? "bg-yellow-500" : "bg-red-500"
-                }
-              />
-            </div>
-            {statusData.length > 0 && (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={statusData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {statusData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-lg">
-          <CardHeader>
-            <CardTitle>Subject-wise Performance</CardTitle>
-            <CardDescription>Attendance breakdown by subject</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {chartData.length > 0 ? (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="subject"
-                      angle={-45}
-                      textAnchor="end"
-                      height={80}
-                      fontSize={12}
-                    />
-                    <YAxis domain={[0, 100]} />
-                    <Tooltip
-                      formatter={(value, name) => [
-                        name === 'attendance' ? `${value}%` : value,
-                        name === 'attendance' ? 'Attendance %' : name
-                      ]}
-                    />
-                    <Legend />
-                    <Bar dataKey="attendance" fill="#3b82f6" name="Attendance %" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                <div className="text-center">
-                  <Info className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No attendance data available</p>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* Analytics Screen Time Card */}
+      <div className="mb-8 relative z-10 flex justify-center">
+        <ScreenTimeCard
+          totalHours={Math.floor(attendanceStats.overallPercentage)} // Main percentage number (e.g., 81)
+          totalMinutes={Math.round((attendanceStats.overallPercentage % 1) * 100)} // Decimal part (e.g., 82 for 81.82%)
+          barData={attendanceTrendData.slice(-7).map(item => item.attendance / 100)} // 7-day attendance trend
+          timeLabels={attendanceTrendData.slice(-7).map(item => item.date)}
+          topApps={[
+            {
+              icon: <div className="w-4 h-4 rounded-full bg-gradient-to-r from-green-400 to-green-600 flex items-center justify-center text-xs font-bold text-white">
+                📊
+              </div>,
+              name: "Overall",
+              duration: `${Math.round(attendanceStats.overallPercentage)}%`,
+              color: '#22c55e'
+            },
+            {
+              icon: <div className="w-4 h-4 rounded-full bg-gradient-to-r from-blue-400 to-blue-600 flex items-center justify-center text-xs font-bold text-white">
+                📅
+              </div>,
+              name: "This Month",
+              duration: `${Math.round(attendanceStats.thisMonthAttendance)}%`,
+              color: '#3b82f6'
+            },
+            {
+              icon: <div className="w-4 h-4 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 flex items-center justify-center text-xs font-bold text-white">
+                📚
+              </div>,
+              name: "Best Subject",
+              duration: subjectWiseAttendance.length > 0 ? `${Math.round(subjectWiseAttendance[0].percentage)}%` : "N/A",
+              color: '#10b981'
+            },
+            {
+              icon: <div className="w-4 h-4 rounded-full bg-gradient-to-r from-orange-400 to-orange-600 flex items-center justify-center text-xs font-bold text-white">
+                🎯
+              </div>,
+              name: "Weekly Avg",
+              duration: attendanceTrendData.length > 0 ? `${Math.round(attendanceTrendData.slice(-7).reduce((sum, item) => sum + item.attendance, 0) / Math.min(7, attendanceTrendData.length))}%` : "N/A",
+              color: '#f97316'
+            }
+          ]}
+        />
       </div>
 
       {/* Subject-wise Breakdown */}
-      <Card className="shadow-lg mb-8">
+      <Card className="shadow-2xl border-white/10 bg-white/5 dark:bg-black/5 backdrop-blur-xl mb-8 relative z-10">
         <CardHeader>
           <CardTitle>Subject-wise Breakdown</CardTitle>
           <CardDescription>Detailed attendance for each subject</CardDescription>
@@ -503,7 +505,7 @@ export default function StudentAttendancePage() {
               {subjectWiseAttendance.map((subject) => (
                 <div
                   key={subject.subject}
-                  className={`p-4 rounded-lg border ${getSubjectStatusColor(subject.status)}`}
+                  className={`p-4 rounded-lg border border-white/20 bg-white/10 dark:bg-black/10 backdrop-blur-sm shadow-lg ${getSubjectStatusColor(subject.status)}`}
                 >
                   <div className="flex justify-between items-start mb-2">
                     <h4 className="font-semibold text-sm">{subject.subject}</h4>
@@ -534,7 +536,7 @@ export default function StudentAttendancePage() {
       </Card>
 
       {/* Search and Filters */}
-      <Card className="shadow-lg mb-8">
+      <Card className="shadow-2xl border-white/10 bg-white/5 dark:bg-black/5 backdrop-blur-xl mb-8 relative z-10">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Search className="h-5 w-5" />
@@ -573,7 +575,7 @@ export default function StudentAttendancePage() {
       </Card>
 
       {/* Detailed Records Table */}
-      <Card className="shadow-lg">
+      <Card className="shadow-2xl border-white/10 bg-white/5 dark:bg-black/5 backdrop-blur-xl relative z-10">
         <CardHeader>
           <CardTitle>Attendance Records</CardTitle>
           <CardDescription>

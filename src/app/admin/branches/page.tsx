@@ -5,9 +5,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Branch, UserProfile, defaultBranches } from '@/types';
 import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
-import { getBranches, createBranch, deleteBranch, checkBranchInUse, getUserProfiles } from '@/lib/supabase-utils';
+import { getBranches, createBranch, deleteBranch, getUserProfiles } from '@/lib/supabase-utils';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
+import ParticleBackground from "@/components/ui/particle-background";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -97,9 +98,10 @@ export default function BranchManagementPage() {
       setNewBranchName('');
       setIsAddBranchDialogOpen(false);
       fetchBranchesAndFaculty(); // Refresh data
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding branch:', error);
-      toast({ title: "Error", description: "Failed to add branch. Please try again.", variant: "destructive", duration: 3000 });
+      const errorMessage = error?.message || error?.details || 'Failed to add branch. Please try again.';
+      toast({ title: "Error", description: errorMessage, variant: "destructive", duration: 5000 });
     }
   };
 
@@ -111,19 +113,6 @@ export default function BranchManagementPage() {
     if (!branchToDelete) return;
 
     try {
-      // Check if branch is used by any data using Supabase
-      const isBranchUsed = await checkBranchInUse(branchToDelete);
-      if (isBranchUsed) {
-        toast({
-          title: "Deletion Prevented",
-          description: `Branch "${branchToDelete}" cannot be deleted as it is assigned to faculty or used in content. Please reassign/remove dependencies before deleting.`,
-          variant: "destructive",
-          duration: 7000,
-        });
-        setBranchToDelete(null);
-        return;
-      }
-
       await deleteBranch(branchToDelete);
       toast({ title: "Success", description: `Branch "${branchToDelete}" deleted successfully.`, duration: 3000 });
       setBranchToDelete(null);
@@ -173,8 +162,11 @@ export default function BranchManagementPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4 relative z-10">
         <div className="flex items-center gap-4">
             <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back">
                 <ArrowLeft className="h-5 w-5" />
@@ -290,7 +282,16 @@ export default function BranchManagementPage() {
             <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete the branch "{branchToDelete}"? This action cannot be undone.
-              If this branch is assigned to any faculty, deletion will be prevented.
+              <br /><br />
+              <strong>Warning:</strong> This will also permanently delete all groups associated with this branch, including:
+              <ul className="list-disc list-inside mt-2 space-y-1">
+                <li>Department announcement groups</li>
+                <li>All class groups (1st-8th semester)</li>
+                <li>All student discussion groups</li>
+                <li>All group memberships and messages</li>
+              </ul>
+              <br />
+              If this branch has active users, they will lose access to their groups.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -19,16 +19,34 @@ export function StudyMaterialItem({ material }: StudyMaterialItemProps) {
   const { toast } = useToast();
 
   const handleDownload = (attachment: StudyMaterialAttachment) => {
-    // Mock download for localStorage. Real implementation would fetch from a URL.
-    toast({ title: "Download Started (Mock)", description: `Downloading ${attachment.name}... This is a mock.`, duration: 3000 });
-    const blob = new Blob([`Mock file content for ${attachment.name} (ID: ${attachment.mockFileId})`], { type: attachment.type });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = attachment.name;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
+    try {
+      if (attachment.base64Content) {
+        // Convert base64 data URL to blob
+        const base64Data = attachment.base64Content.split(',')[1]; // Remove data URL prefix
+        const binaryData = atob(base64Data); // Decode base64
+        const bytes = new Uint8Array(binaryData.length);
+        for (let i = 0; i < binaryData.length; i++) {
+          bytes[i] = binaryData.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: attachment.type });
+
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = attachment.name;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+
+        toast({ title: "Download Started", description: `Downloading ${attachment.name}...`, duration: 3000 });
+      } else {
+        // Fallback to mock content if no base64 content available
+        toast({ title: "Download Error", description: `File content not available for ${attachment.name}`, variant: "destructive", duration: 3000 });
+      }
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      toast({ title: "Download Error", description: `Failed to download ${attachment.name}`, variant: "destructive", duration: 3000 });
+    }
   };
 
   return (
@@ -68,7 +86,7 @@ export function StudyMaterialItem({ material }: StudyMaterialItemProps) {
         )}
       </CardContent>
       <CardFooter className="text-xs text-muted-foreground px-5 py-3 border-t bg-muted/30">
-        Uploaded by {material.uploadedByDisplayName} &bull; {formatDistanceToNow(parseISO(material.uploadedAt), { addSuffix: true })}
+        Uploaded by {material.uploaded_by_display_name} &bull; {material.created_at ? formatDistanceToNow(parseISO(material.created_at), { addSuffix: true }) : 'Unknown date'}
       </CardFooter>
     </Card>
   );

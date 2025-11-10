@@ -5,6 +5,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import type { UserProfile } from '@/types';
+import ParticleBackground from "@/components/ui/particle-background";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -19,6 +20,25 @@ export default function PlacementsPage() {
   const [allAlumni, setAllAlumni] = useState<UserProfile[]>([]);
   const [pageLoading, setPageLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const goToDashboard = () => {
+    if (!user) return;
+    
+    // Navigate to role-specific dashboard
+    switch (user.role) {
+      case 'admin':
+        router.push('/admin');
+        break;
+      case 'faculty':
+        router.push('/faculty');
+        break;
+      case 'student':
+      case 'alumni':
+      default:
+        router.push('/student');
+        break;
+    }
+  };
 
   useEffect(() => {
     if (!authLoading) {
@@ -39,7 +59,7 @@ export default function PlacementsPage() {
           } catch(e) { console.error(`Failed to parse profile ${key}`); }
         }
       }
-      setAllAlumni(profiles.sort((a, b) => (a.displayName || "").localeCompare(b.displayName || "")));
+      setAllAlumni(profiles.sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "")));
       setPageLoading(false);
     }
   }, [user, authLoading, router]);
@@ -48,11 +68,11 @@ export default function PlacementsPage() {
     if (!searchTerm) return allAlumni;
     const term = searchTerm.toLowerCase();
     return allAlumni.filter(p => 
-      p.displayName?.toLowerCase().includes(term) ||
+      p.full_name?.toLowerCase().includes(term) ||
       p.email.toLowerCase().includes(term) ||
-      p.placementCompany?.toLowerCase().includes(term) ||
-      p.placementJobTitle?.toLowerCase().includes(term) ||
-      p.skills?.some(s => s.name.toLowerCase().includes(term))
+      p.placement_company?.toLowerCase().includes(term) ||
+      p.placement_job_title?.toLowerCase().includes(term) ||
+      p.skills?.some((s: string) => s.toLowerCase().includes(term))
     );
   }, [searchTerm, allAlumni]);
 
@@ -73,13 +93,16 @@ export default function PlacementsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 relative z-10">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-primary flex items-center gap-3"><Briefcase /> Alumni & Placements</h1>
           <p className="text-muted-foreground mt-1">Browse alumni profiles and discover career opportunities.</p>
         </div>
-        <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back"><ArrowLeft className="h-5 w-5" /></Button>
+        <Button variant="outline" size="icon" onClick={goToDashboard} aria-label="Go back"><ArrowLeft className="h-5 w-5" /></Button>
       </div>
       
       <div className="mb-6 relative max-w-md">
@@ -102,7 +125,7 @@ export default function PlacementsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredAlumni.map(profile => (
-                <Link key={profile.uid} href={`/profile/${profile.uid}`}>
+                <Link key={profile.id} href={`/profile/${profile.id}`}>
                     <UserProfileCard profile={profile} />
                 </Link>
             ))}

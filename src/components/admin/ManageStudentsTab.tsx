@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCnCard
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { CheckCircle2, XCircle, Edit3, Trash2, ShieldAlert, Search, VenetianMask } from 'lucide-react';
+import { CheckCircle2, XCircle, PenLine, Trash2, ShieldAlert, Search, VenetianMask } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,8 +22,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { checkAndGenerateNotifications } from '@/lib/notification-manager';
 import { getUserProfiles, updateUserProfile } from '@/lib/supabase-utils';
-import { User } from '@/components/auth-provider';
+import { supabase } from '@/lib/supabase';
 import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -32,6 +33,8 @@ import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
+import { User } from '@/components/auth-provider';
+import { PasswordInput } from '@/components/ui/password-input';
 
 
 const passwordChangeSchema = z.object({
@@ -52,7 +55,7 @@ export default function ManageStudentsTab({ actor }: ManageStudentsTabProps) {
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedStudent, setSelectedStudent] = useState<UserProfile | null>(null);
-  const [dialogAction, setDialogAction] = useState<'approve' | 'reject' | 'revoke' | 'changePassword' | null>(null);
+  const [dialogAction, setDialogAction] = useState<'approve' | 'reject' | 'revoke' | 'changePassword' | 'edit' | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterBranch, setFilterBranch] = useState<string>('all');
@@ -155,13 +158,21 @@ export default function ManageStudentsTab({ actor }: ManageStudentsTabProps) {
           };
           toastMessage = `Access revoked for ${selectedStudent.full_name || selectedStudent.student_id}. Reason: ${rejectionReason}`;
           break;
+        case 'edit':
+          // For now, just show a message that edit functionality is coming soon
+          toastMessage = `Edit functionality for ${selectedStudent.full_name || selectedStudent.student_id} is coming soon.`;
+          // Don't update database for edit case
+          toast({ title: "Info", description: toastMessage, duration: 3000 });
+          setDialogAction(null);
+          setSelectedStudent(null);
+          setRejectionReason('');
+          return;
       }
 
       // Update the profile in the database
       await updateUserProfile(selectedStudent.id, updatedProfileData);
 
       toast({ title: "Action Successful", description: toastMessage, duration: 3000 });
-      fetchStudents(); // Refresh the student list
     } catch (error) {
       console.error('Error updating student:', error);
       toast({ title: "Error", description: "Failed to update student. Please try again.", variant: "destructive" });
@@ -262,18 +273,18 @@ export default function ManageStudentsTab({ actor }: ManageStudentsTabProps) {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
-             <Select value={filterBranch} onValueChange={setFilterBranch}>
+            <Select value={filterBranch} onValueChange={setFilterBranch}>
               <SelectTrigger><SelectValue placeholder="Filter by Branch" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Branches</SelectItem>
-                {uniqueBranches.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                {uniqueBranches.map((b: Branch) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterSemester} onValueChange={setFilterSemester}>
               <SelectTrigger><SelectValue placeholder="Filter by Semester" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Semesters</SelectItem>
-                {uniqueSemesters.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                {uniqueSemesters.map((s: Semester) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
@@ -346,6 +357,15 @@ export default function ManageStudentsTab({ actor }: ManageStudentsTabProps) {
                             <TooltipContent><p>Reject Student</p></TooltipContent>
                         </Tooltip>
                        )}
+                       {/* Edit button for all students */}
+                       <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="text-blue-600 hover:text-blue-700" onClick={() => { setSelectedStudent(student); setDialogAction('edit'); }}>
+                                <PenLine className="h-5 w-5" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent><p>Edit Student Details</p></TooltipContent>
+                       </Tooltip>
                       {student.is_approved && ( // APPROVED student
                         <Tooltip>
                             <TooltipTrigger asChild>
@@ -368,7 +388,7 @@ export default function ManageStudentsTab({ actor }: ManageStudentsTabProps) {
                        )}
                        <Tooltip>
                         <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-blue-600 hover:text-blue-700" onClick={() => { setSelectedStudent(student); setDialogAction('changePassword'); passwordForm.reset(); }}>
+                            <Button variant="ghost" size="icon" className="text-purple-600 hover:text-purple-700" onClick={() => { setSelectedStudent(student); setDialogAction('changePassword'); passwordForm.reset(); }}>
                                 <VenetianMask className="h-5 w-5" />
                             </Button>
                         </TooltipTrigger>
@@ -447,7 +467,7 @@ export default function ManageStudentsTab({ actor }: ManageStudentsTabProps) {
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>New Password</FormLabel>
-                                    <FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl>
+                                    <FormControl><PasswordInput placeholder="••••••••" {...field} /></FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}
@@ -458,7 +478,7 @@ export default function ManageStudentsTab({ actor }: ManageStudentsTabProps) {
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Confirm New Password</FormLabel>
-                                    <FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl>
+                                    <FormControl><PasswordInput placeholder="••••••••" {...field} /></FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}

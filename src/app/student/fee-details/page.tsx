@@ -13,6 +13,7 @@ import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format } from 'date-fns';
 import { FeeStatusBadge } from '@/components/fees/fee-status-badge';
+import ParticleBackground from "@/components/ui/particle-background";
 
 export default function StudentFeeDetailsPage() {
   const { user, isLoading: authLoading } = useAuth();
@@ -32,14 +33,18 @@ export default function StudentFeeDetailsPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!authLoading) {
-      if (user && (user.role === 'student' || user.role === 'pending')) {
-        fetchFeeRecords();
-        setPageLoading(false);
-      } else {
-        router.push(user ? '/dashboard' : '/login');
+    const loadData = async () => {
+      if (!authLoading) {
+        if (user && (user.role === 'student' || user.role === 'pending')) {
+          await fetchFeeRecords();
+          setPageLoading(false);
+        } else {
+          router.push(user ? '/dashboard' : '/login');
+        }
       }
-    }
+    };
+
+    loadData();
   }, [user, authLoading, router, fetchFeeRecords]);
 
   if (pageLoading || authLoading) {
@@ -63,14 +68,17 @@ export default function StudentFeeDetailsPage() {
   const totalDue = feeRecords.filter(r => r.payment_status !== 'paid').reduce((sum, r) => sum + (r.total_amount - r.paid_amount), 0);
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-4">
+    <div className="container mx-auto px-4 py-8 relative overflow-hidden">
+      {/* Particle background animation */}
+      <ParticleBackground />
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4 relative z-10">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primary flex items-center"><CreditCard className="mr-3 h-7 w-7" /> My Fee Details</h1>
         <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back"><ArrowLeft className="h-5 w-5" /></Button>
       </div>
       <p className="text-muted-foreground mb-8">View your payment history, due dates, and pending fees.</p>
       
-      <Card className="shadow-lg mb-8">
+      <Card className="shadow-lg mb-8 relative z-10">
         <CardHeader>
           <CardTitle>Summary</CardTitle>
         </CardHeader>
@@ -95,20 +103,31 @@ export default function StudentFeeDetailsPage() {
           ) : (
             <div className="overflow-x-auto">
                 <Table>
-                    <TableHeader><TableRow><TableHead>Semester</TableHead><TableHead>Fee Breakdown</TableHead><TableHead>Total</TableHead><TableHead>Paid</TableHead><TableHead>Due</TableHead><TableHead>Due Date</TableHead><TableHead>Status</TableHead><TableHead>Paid At</TableHead></TableRow></TableHeader>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="min-w-[100px]">Semester</TableHead>
+                        <TableHead className="hidden sm:table-cell min-w-[200px]">Fee Breakdown</TableHead>
+                        <TableHead className="min-w-[100px]">Total</TableHead>
+                        <TableHead className="min-w-[100px]">Paid</TableHead>
+                        <TableHead className="min-w-[100px]">Due</TableHead>
+                        <TableHead className="min-w-[120px]">Due Date</TableHead>
+                        <TableHead className="min-w-[100px]">Status</TableHead>
+                        <TableHead className="hidden md:table-cell min-w-[120px]">Paid At</TableHead>
+                      </TableRow>
+                    </TableHeader>
                     <TableBody>
                         {feeRecords.map(rec => (
                             <TableRow key={rec.id}>
-                                <TableCell>{rec.semester}</TableCell>
-                                <TableCell className="text-xs">
+                                <TableCell className="font-medium">{rec.semester}</TableCell>
+                                <TableCell className="hidden sm:table-cell text-xs">
                                     T: ₹{rec.tuition_fee}, H: ₹{rec.hostel_fee}, L: ₹{rec.library_fee}, Lab: ₹{rec.lab_fee}, O: ₹{rec.other_fees}
                                 </TableCell>
-                                <TableCell>₹{rec.total_amount.toLocaleString()}</TableCell>
-                                <TableCell>₹{rec.paid_amount.toLocaleString()}</TableCell>
-                                <TableCell>₹{(rec.total_amount - rec.paid_amount).toLocaleString()}</TableCell>
-                                <TableCell>{format(new Date(rec.due_date), "PP")}</TableCell>
+                                <TableCell className="font-medium">₹{rec.total_amount.toLocaleString()}</TableCell>
+                                <TableCell className="text-green-600">₹{rec.paid_amount.toLocaleString()}</TableCell>
+                                <TableCell className="text-destructive">₹{(rec.total_amount - rec.paid_amount).toLocaleString()}</TableCell>
+                                <TableCell className="text-sm">{format(new Date(rec.due_date), "PP")}</TableCell>
                                 <TableCell><FeeStatusBadge status={rec.payment_status} /></TableCell>
-                                <TableCell>{rec.paid_at ? format(new Date(rec.paid_at), "PP") : 'N/A'}</TableCell>
+                                <TableCell className="hidden md:table-cell text-sm">{rec.paid_at ? format(new Date(rec.paid_at), "PP") : 'N/A'}</TableCell>
                             </TableRow>
                         ))}
                     </TableBody>

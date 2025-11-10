@@ -60,8 +60,10 @@ export function AnimatedDownloadButton({ onClick, fileName, fileSize }: Animated
       <div className="icon-wrapper relative flex h-full w-14 flex-shrink-0 items-center justify-center bg-black/20">
         <div className="icon-line absolute h-4 w-0.5 bg-primary-foreground transition-transform duration-500 ease-out group-[.loading]:animate-line"></div>
         <svg
-          className="icon-svg absolute z-10 h-5 w-5 fill-none stroke-current stroke-2 [stroke-linecap:round] [stroke-linejoin:round] group-[.loading]:animate-svg"
+          className="icon-svg absolute z-10 h-5 w-5 fill-none stroke-current stroke-2 group-[.loading]:animate-svg"
           viewBox="0 0 24 24"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         >
           <path d={isDone ? "M3 14 L8 19 L21 6" : "M4 12 l8 8 l8 -8"} />
         </svg>
