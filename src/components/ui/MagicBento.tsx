@@ -599,7 +599,7 @@ const MagicBento = ({
               ref={(el) => {
                 if (!el) return;
 
-                const handleMouseMove = (e) => {
+                const handleMouseMove = (e: MouseEvent) => {
                   if (shouldDisableAnimations) return;
 
                   const rect = el.getBoundingClientRect();
@@ -654,7 +654,7 @@ const MagicBento = ({
                   }
                 };
 
-                const handleClick = (e) => {
+                const handleClick = (e: MouseEvent) => {
                   if (!clickEffect || shouldDisableAnimations) return;
 
                   const rect = el.getBoundingClientRect();

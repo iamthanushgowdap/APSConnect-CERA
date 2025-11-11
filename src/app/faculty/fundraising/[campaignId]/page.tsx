@@ -27,7 +27,7 @@ export default function FundraisingStatusPage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const params = useParams();
-  const campaignId = params.campaignId as string;
+  const campaignId = params?.campaignId as string;
 
   const [campaign, setCampaign] = useState<FundraisingCampaign | null>(null);
   const [studentStatuses, setStudentStatuses] = useState<StudentStatus[]>([]);

@@ -1,6 +1,6 @@
 import React from 'react';
 import BeautifulNav from '../components/BeautifulNav';
-import logo from '../assets/logos/cera-logo.png'; // Update this path to your actual logo
+// import logo from '../assets/logos/cera-logo.png'; // Logo file doesn't exist, using text logo instead
 
 const BeautifulNavDemo = () => {
   const menuItems = [
@@ -41,8 +41,8 @@ const BeautifulNavDemo = () => {
 
       {/* Beautiful Navigation */}
       <BeautifulNav
-        logo={logo}
-        logoAlt="CERA Logo"
+        logo="APSConnect" // Using text logo instead of image
+        logoAlt="APSConnect Logo"
         items={menuItems}
         socialItems={socialItems}
         activeHref="/dashboard"

@@ -46,7 +46,7 @@ import {
   GraduationCap,
   HandCoins,
 } from "lucide-react";
-import type { Post, UserProfile, UserRole } from "@/types";
+import type { Post, UserProfile, UserRole, Semester, EducationEntry } from "@/types";
 import { DownloadAppSection } from "@/components/layout/download-app-section";
 import { SquidGameLoader } from "@/components/ui/loading-spinners";
 import { RecentPostItem } from '@/components/dashboard/RecentPostItem';
@@ -79,15 +79,15 @@ export default function StudentDashboardPage() {
         }
         latestUser = {
             ...authUser,
-            displayName: fullProfile.displayName,
+            displayName: fullProfile.full_name || null,
             role: newRole,
-            isApproved: fullProfile.isApproved,
-            rejectionReason: fullProfile.rejectionReason,
+            is_approved: fullProfile.is_approved,
+            rejectionReason: fullProfile.rejection_reason,
             branch: fullProfile.branch,
-            semester: fullProfile.semester,
+            semester: fullProfile.semester as Semester,
         };
         setStudentUser(latestUser);
-        if (authUser.role !== newRole || authUser.rejectionReason !== fullProfile.rejectionReason) {
+        if (authUser.role !== newRole || authUser.rejectionReason !== fullProfile.rejection_reason) {
             updateUserContext(latestUser);
         }
     } else {
@@ -141,7 +141,7 @@ export default function StudentDashboardPage() {
   const checkForAlumniStatus = (profile: UserProfile): UserRole => {
     if (profile.role === 'alumni') return 'alumni'; // Already an alumni, no change
     if (profile.role === 'student' && profile.education && profile.education.length > 0) {
-      const latestEducation = profile.education.sort((a, b) => parseInt(b.graduationYear) - parseInt(a.graduationYear))[0];
+      const latestEducation = profile.education.sort((a: EducationEntry, b: EducationEntry) => parseInt(b.graduationYear) - parseInt(a.graduationYear))[0];
       const gradYear = parseInt(latestEducation.graduationYear);
       const currentYear = new Date().getFullYear();
       if (!isNaN(gradYear) && currentYear > gradYear) {

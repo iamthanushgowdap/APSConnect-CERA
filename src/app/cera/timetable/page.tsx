@@ -4,8 +4,22 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/auth-provider';
 
+// Type definitions
+interface TimetableEntry {
+  period: number;
+  type: 'class' | 'break';
+  subject?: string;
+  subject_code?: string;
+  room_number?: string;
+}
+
+interface TimetableDay {
+  day: string;
+  entries: TimetableEntry[];
+}
+
 // Helper: create timetable table HTML
-function createTimetableTable(timetableData) {
+function createTimetableTable(timetableData: TimetableDay[] | null) {
   const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const periods = [
     { period: 0, time: '09:00–09:50', sortOrder: 0 },
@@ -20,7 +34,7 @@ function createTimetableTable(timetableData) {
   ].sort((a, b) => a.sortOrder - b.sortOrder);
 
   // Create a map of day -> period -> class info
-  const scheduleMap = {};
+  const scheduleMap: Record<string, Record<number, string>> = {};
   dayOrder.forEach(day => {
     scheduleMap[day] = {};
     periods.forEach(p => {
@@ -30,10 +44,10 @@ function createTimetableTable(timetableData) {
 
   // Fill in the schedule data
   if (Array.isArray(timetableData)) {
-    timetableData.forEach(dayData => {
+    timetableData.forEach((dayData: TimetableDay) => {
       const day = dayData.day;
       if (dayOrder.includes(day) && dayData.entries) {
-        dayData.entries.forEach(entry => {
+        dayData.entries.forEach((entry: TimetableEntry) => {
           // Show both classes and breaks
           if ((entry.type === 'class' || entry.type === 'break') && entry.subject) {
             let classInfo = entry.subject;
@@ -76,9 +90,9 @@ function createTimetableTable(timetableData) {
 
 export default function TimetablePage() {
   const { user, isLoading: authLoading } = useAuth();
-  const [timetableData, setTimetableData] = useState(null);
+  const [timetableData, setTimetableData] = useState<TimetableDay[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -93,10 +107,10 @@ export default function TimetablePage() {
 
           if (error) throw error;
 
-          setTimetableData(data);
+          setTimetableData(data as TimetableDay[]);
         } catch (err) {
           console.error('Error fetching timetable:', err);
-          setError(err.message);
+          setError(err instanceof Error ? err.message : 'An error occurred while fetching timetable');
         } finally {
           setLoading(false);
         }

@@ -67,8 +67,8 @@ export default function FacultyViewContentPage() {
         <p className="mb-6">
           You can also create new posts for your students.
         </p>
-        <Link href="/faculty/feed">
-          <Button>View Activity Feed</Button>
+        <Link href="/faculty">
+          <Button>View Faculty Dashboard</Button>
         </Link>
       </CardContent>
     </Card>

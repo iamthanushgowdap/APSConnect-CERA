@@ -187,7 +187,7 @@ export default function IndividualPostPage() {
         localStorage.setItem('apsconnect_posts', JSON.stringify(allPostsStored));
         
         toast({title: "Post Deleted", description: `"${post.title}" has been deleted.`, duration: 3000});
-        router.push('/feed'); 
+        router.push('/feed' as any); 
     }
     setDeleteTargetPostId(null);
   };
@@ -195,9 +195,9 @@ export default function IndividualPostPage() {
   const handleEditPost = () => {
     if (!post || !user) return;
     if (user.role === 'admin') {
-      router.push(`/admin/posts/edit/${post.id}`);
+      router.push(`/admin/posts/edit/${post.id}` as any);
     } else if (user.role === 'faculty' && post.authorId === user.uid) {
-      router.push(`/faculty/content/edit/${post.id}`);
+      router.push(`/faculty/content/edit/${post.id}` as any);
     }
   };
 
@@ -247,9 +247,7 @@ export default function IndividualPostPage() {
           <CardContent>
             <AlertTriangle className="h-12 w-12 sm:h-16 sm:w-16 text-warning mx-auto mb-4" />
             <p className="text-md sm:text-lg text-muted-foreground">{error}</p>
-            <Link href="/feed">
-              <Button variant="outline" className="mt-6">Back to Feed</Button>
-            </Link>
+            <Button variant="outline" className="mt-6" onClick={() => router.push('/feed' as any)}>Back to Feed</Button>
           </CardContent>
         </Card>
       </div>
@@ -260,9 +258,7 @@ export default function IndividualPostPage() {
     return (
       <div className="container mx-auto px-4 py-8 text-center">
         <p className="text-muted-foreground">Post not found or you do not have permission to view it.</p>
-         <Link href="/feed">
-            <Button variant="outline" className="mt-4">Back to Feed</Button>
-         </Link>
+         <Button variant="outline" className="mt-4" onClick={() => router.push('/feed' as any)}>Back to Feed</Button>
       </div>
     );
   }

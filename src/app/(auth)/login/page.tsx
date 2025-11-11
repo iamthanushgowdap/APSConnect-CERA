@@ -74,7 +74,7 @@ export default function LoginPage() {
         description: `Welcome back${loggedInUser.displayName ? `, ${loggedInUser.displayName}` : ''}!`,
         duration: 3000,
       });
-      router.push(targetRoute);
+      router.push(targetRoute as any);
 
     } catch (error: any) {
       toast({

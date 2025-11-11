@@ -460,7 +460,7 @@ export default function SubjectManagementPage() {
                                     />
                                   </FormControl>
                                   <FormLabel className="font-normal text-sm flex-1 cursor-pointer">
-                                    {faculty.full_name || faculty.display_name} ({faculty.email})
+                                    {faculty.full_name || faculty.email}
                                   </FormLabel>
                                 </FormItem>
                               )}

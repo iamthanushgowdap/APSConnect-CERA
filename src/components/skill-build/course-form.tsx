@@ -59,7 +59,7 @@ export function CourseForm({ onSubmitSuccess, initialData, facultyUser }: Course
         }
       }
     }
-    setAvailableStudents(students.sort((a,b) => (a.display_name || a.full_name || a.email || '').localeCompare(b.display_name || b.full_name || b.email || '')));
+    setAvailableStudents(students.sort((a,b) => (a.full_name || a.email || '').localeCompare(b.full_name || b.email || '')));
   }, [facultyUser]);
 
   const onSubmit = async (data: CourseFormValues) => {
@@ -119,7 +119,7 @@ export function CourseForm({ onSubmitSuccess, initialData, facultyUser }: Course
                                                 }}
                                             />
                                         </FormControl>
-                                        <FormLabel className="font-normal text-sm">{student.display_name || student.full_name} ({student.usn})</FormLabel>
+                                        <FormLabel className="font-normal text-sm">{student.full_name} ({student.usn})</FormLabel>
                                     </FormItem>
                                 )}
                             />

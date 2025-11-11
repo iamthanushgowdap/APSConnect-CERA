@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         html: resumeHTML,
-        fileName: `${profileData.full_name || profileData.display_name || 'Resume'}_CV.pdf`
+        fileName: `${profileData.full_name || 'Resume'}_CV.pdf`
       }),
     });
 
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     return new NextResponse(pdfBlob, {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${profileData.full_name || profileData.display_name || 'Resume'}_CV.pdf"`,
+        'Content-Disposition': `attachment; filename="${profileData.full_name || 'Resume'}_CV.pdf"`,
       },
     });
 
@@ -85,7 +85,7 @@ function generateResumeHTML(profile: any) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale="1.0">
-    <title>${profile.full_name || profile.display_name || 'Resume'} - CV</title>
+    <title>${profile.full_name || 'Resume'} - CV</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Times+New+Roman&family=Arial:wght@400;600&display=swap" rel="stylesheet">
     <style>
@@ -249,7 +249,7 @@ function generateResumeHTML(profile: any) {
   </head>
   <body>
     <div class="header">
-      <h1>${profile.full_name || profile.display_name || 'Name Not Provided'}</h1>
+      <h1>${profile.full_name || 'Name Not Provided'}</h1>
       <div class="contact-info">
         ${profile.email || ''} | ${profile.phone || ''} | ${profile.address || ''}<br>
         ${profile.linkedin_url ? `<a href="${profile.linkedin_url}">LinkedIn</a> | ` : ''}${profile.github_url ? `<a href="${profile.github_url}">GitHub</a> | ` : ''}${profile.portfolio_url ? `<a href="${profile.portfolio_url}">Portfolio</a>` : ''}

@@ -480,7 +480,7 @@ export function TimetableForm({ role, facultyAssignedBranches, onTimetableUpdate
         // Look up real faculty names instead of using IDs
         const facultyNames = (subject.assignedFacultyUids || []).map((uid: string) => {
           const faculty = facultyProfiles.find(f => f.id === uid);
-          return faculty ? (faculty.full_name || faculty.display_name || faculty.email.split('@')[0]) : `Unknown Faculty`;
+          return faculty ? (faculty.full_name || faculty.email.split('@')[0]) : `Unknown Faculty`;
         }).join(', ');
 
         currentSchedule[dayIndex].entries[periodIndex].faculty_name = facultyNames;
@@ -576,7 +576,7 @@ export function TimetableForm({ role, facultyAssignedBranches, onTimetableUpdate
                       Faculty: {subject.assignedFacultyUids && subject.assignedFacultyUids.length > 0 ? 
                         subject.assignedFacultyUids.map((uid: string) => {
                           const faculty = facultyProfiles.find(f => f.id === uid);
-                          return faculty ? (faculty.full_name || faculty.display_name || faculty.email.split('@')[0]) : 'Unknown';
+                          return faculty ? (faculty.full_name || faculty.email.split('@')[0]) : 'Unknown';
                         }).join(', ') : 
                         'None'}
                     </div>

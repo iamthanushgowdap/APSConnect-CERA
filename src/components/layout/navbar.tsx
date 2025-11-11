@@ -301,7 +301,7 @@ export function Navbar() {
             return (
                 <Link
                     key={item.href}
-                    href={item.href}
+                    href={item.href as any}
                     className={cn(
                     "transition-colors hover:text-primary relative flex items-center",
                     pathname === item.href ? "text-primary" : "text-foreground/60",

@@ -2,10 +2,10 @@
 
 import React, { useState, forwardRef } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import { Input, InputProps } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-interface PasswordInputProps extends Omit<InputProps, 'type'> {
+interface PasswordInputProps extends Omit<React.ComponentProps<"input">, 'type'> {
   className?: string;
 }
 

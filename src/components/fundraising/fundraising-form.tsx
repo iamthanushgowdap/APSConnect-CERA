@@ -309,7 +309,7 @@ export function FundraisingForm({ onSubmitSuccess, initialData, facultyUser }: F
         }
       } catch (notifError) {
         console.error('❌ Exception in fundraising notification creation:', notifError);
-        console.error('❌ Exception details:', notifError.stack);
+        console.error('❌ Exception details:', notifError instanceof Error ? notifError.stack : String(notifError));
       }
 
       const processedCampaign: FundraisingCampaign = {

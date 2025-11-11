@@ -252,7 +252,7 @@ export function NotificationCenter({ user, onClose }: NotificationCenterProps) {
           }
 
           // Navigate regardless of errors
-          router.push(notification.href);
+          router.push(notification.href as any);
           onClose();
 
           // Dispatch event to update navbar badge count

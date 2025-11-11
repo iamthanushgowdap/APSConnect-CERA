@@ -92,10 +92,10 @@ export default function AdminDashboardPage() {
 
       } else if (authUser && authUser.role !== 'admin'){
         setUser(null); 
-        router.push('/dashboard'); 
+        router.push('/dashboard' as any); 
       } else if (!authUser) {
         setUser(null);
-        router.push('/login'); // Direct redirect to login when logged out
+        router.push('/login' as any); // Direct redirect to login when logged out
       }
       setIsLoading(false);
     }
@@ -144,7 +144,7 @@ export default function AdminDashboardPage() {
             <CardContent className="text-center">
                 <ShieldCheck className="h-16 w-16 text-destructive mx-auto mb-4" />
                 <p className="text-md sm:text-lg text-muted-foreground">You do not have permission to view this page.</p>
-                <Link href="/dashboard">
+                <Link href={"/dashboard"}>
                     <Button variant="outline" className="mt-6 border-primary text-primary hover:bg-primary/10">Go to Dashboard</Button>
                 </Link>
             </CardContent>
@@ -275,7 +275,7 @@ function StyledActionCard({ title, description, icon, link, actionText, disabled
         </div>
       </CardHeader>
       <CardContent className="flex-grow flex flex-col justify-end mt-auto px-5 pb-5">
-        <Link href={disabled ? "#" : link} className={`w-full ${disabled ? 'pointer-events-none' : ''}`}>
+        <Link href={disabled ? "#" : (link as any)} className={`w-full ${disabled ? 'pointer-events-none' : ''}`}>
           <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground text-sm sm:text-base py-3 rounded-lg" disabled={disabled}>
             {actionText} <ArrowRight className="ml-2 h-4 w-4"/>
           </Button>

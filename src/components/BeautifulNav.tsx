@@ -563,7 +563,7 @@ const BeautifulNav: React.FC<BeautifulNavProps> = ({
         {isRouterLink(items?.[0]?.href) ? (
           <Link
             className="pill-logo"
-            href={items[0].href}
+            href={items[0].href as any}
             aria-label="Home"
             onMouseEnter={handleLogoEnter}
             role="menuitem"
@@ -594,7 +594,7 @@ const BeautifulNav: React.FC<BeautifulNavProps> = ({
                 {isRouterLink(item.href) ? (
                   <Link
                     role="menuitem"
-                    href={item.href}
+                    href={item.href as any}
                     className={`pill${activeHref === item.href ? ' is-active' : ''}`}
                     aria-label={item.ariaLabel || item.label}
                     onMouseEnter={() => handleEnter(i)}
@@ -686,7 +686,7 @@ const BeautifulNav: React.FC<BeautifulNavProps> = ({
             <li key={item.href || `mobile-item-${i}`}>
               {isRouterLink(item.href) ? (
                 <Link
-                  href={item.href}
+                  href={item.href as any}
                   className={`mobile-menu-link${activeHref === item.href ? ' is-active' : ''}`}
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
@@ -720,7 +720,7 @@ const BeautifulNav: React.FC<BeautifulNavProps> = ({
               items.map((it, idx) => (
                 <li className="sm-panel-itemWrap" key={it.label + idx}>
                   {isRouterLink(it.href) ? (
-                    <Link className="sm-panel-item" href={it.href} aria-label={it.ariaLabel} data-index={idx + 1}>
+                    <Link className="sm-panel-item" href={it.href as any} aria-label={it.ariaLabel} data-index={idx + 1}>
                       <span className="sm-panel-itemLabel">{it.label}</span>
                     </Link>
                   ) : (

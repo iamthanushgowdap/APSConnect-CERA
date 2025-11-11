@@ -83,7 +83,7 @@ export default function FacultyEditPostPage() {
         description: `"${postData.title}" has been updated.`,
         duration: 3000,
       });
-      router.push('/feed'); 
+      router.push('/dashboard' as any); 
     } catch (error) {
       console.error("Error updating post:", error);
       toast({
@@ -128,7 +128,7 @@ export default function FacultyEditPostPage() {
           <CardContent>
             <AlertTriangle className="h-12 w-12 sm:h-16 sm:w-16 text-warning mx-auto mb-4" />
             <p className="text-md sm:text-lg text-muted-foreground">{errorLoadingPost}</p>
-            <Link href="/feed"><Button variant="outline" className="mt-6">Back to Feed</Button></Link>
+            <Link href="/dashboard"><Button variant="outline" className="mt-6">Back to Dashboard</Button></Link>
           </CardContent>
         </Card>
       </div>

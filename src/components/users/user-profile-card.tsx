@@ -33,9 +33,9 @@ export function UserProfileCard({ profile }: UserProfileCardProps) {
     <Card className="shadow-md hover:shadow-lg transition-shadow duration-300 rounded-lg h-full">
       <CardHeader className="flex flex-row items-center space-x-4 pb-3">
         <Avatar className="h-16 w-16">
-          <AvatarImage src={profile.avatar_url} alt={profile.display_name || profile.email} data-ai-hint="person avatar" />
+          <AvatarImage src={profile.avatar_url} alt={profile.full_name || profile.email} data-ai-hint="person avatar" />
           <AvatarFallback className="text-xl bg-muted text-muted-foreground">
-            {getInitials(profile.display_name || profile.email)}
+            {getInitials(profile.full_name || profile.email)}
           </AvatarFallback>
         </Avatar>
         <div>

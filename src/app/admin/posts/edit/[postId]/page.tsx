@@ -74,7 +74,7 @@ export default function AdminEditPostPage() {
         description: `"${postData.title}" has been updated.`,
         duration: 3000,
       });
-      router.push('/feed'); 
+      router.push('/feed' as any); 
     } catch (error) {
       console.error("Error updating post:", error);
       toast({
@@ -104,7 +104,7 @@ export default function AdminEditPostPage() {
           <CardContent>
             <ShieldCheck className="h-12 w-12 sm:h-16 sm:w-16 text-destructive mx-auto mb-4" />
             <p className="text-md sm:text-lg text-muted-foreground">You do not have permission to view this page.</p>
-            <Link href="/dashboard"><Button variant="outline" className="mt-6">Go to Dashboard</Button></Link>
+            <Link href={"/dashboard" as any}><Button variant="outline" className="mt-6">Go to Dashboard</Button></Link>
           </CardContent>
         </Card>
       </div>
@@ -119,7 +119,7 @@ export default function AdminEditPostPage() {
           <CardContent>
             <AlertTriangle className="h-12 w-12 sm:h-16 sm:w-16 text-warning mx-auto mb-4" />
             <p className="text-md sm:text-lg text-muted-foreground">{errorLoadingPost}</p>
-            <Link href="/feed"><Button variant="outline" className="mt-6">Back to Feed</Button></Link>
+            <Link href={"/feed" as any}><Button variant="outline" className="mt-6">Back to Feed</Button></Link>
           </CardContent>
         </Card>
       </div>

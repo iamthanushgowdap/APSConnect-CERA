@@ -121,7 +121,7 @@ export default function StudentDashboardPage() {
       console.log('💾 Using localStorage profile as fallback');
       latestUser = {
         ...authUser,
-        displayName: fullProfile.display_name || fullProfile.full_name || null,
+        displayName: fullProfile.full_name || null,
         role: fullProfile.role,
         branch: fullProfile.branch,
         semester: fullProfile.semester as Semester,

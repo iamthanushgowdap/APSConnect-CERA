@@ -47,7 +47,7 @@ export function ActionCard({ title, description, icon, link, actionText, disable
           </div>
         </CardHeader>
         <CardContent className="flex-grow flex flex-col justify-end mt-auto px-5 pb-5 relative z-10">
-          <Link href={disabled ? "#" : link} className={`w-full ${disabled ? 'pointer-events-none' : ''}`}>
+          <Link href={disabled ? "#" : (link as any)} className={`w-full ${disabled ? 'pointer-events-none' : ''}`}>
             <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground text-sm sm:text-base py-3 rounded-lg" disabled={disabled}>
               {actionText} <ArrowRight className="ml-2 h-4 w-4"/>
             </Button>

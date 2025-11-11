@@ -24,7 +24,7 @@ export default function PublicProfilePage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
 
-  const userId = params.userId as string;
+  const userId = params?.userId as string;
 
   if (!userId) {
     return (
@@ -172,7 +172,7 @@ export default function PublicProfilePage() {
 const InfoItem = ({ icon: Icon, text, href, isLink }: { icon: React.ElementType, text: string, href?: string, isLink?: boolean }) => (
   <div className="flex items-start text-sm">
     <Icon className="h-4 w-4 mr-3 text-muted-foreground flex-shrink-0 mt-0.5" />
-    {href ? <Link href={href} target="_blank" rel="noopener noreferrer" className={isLink ? "text-primary hover:underline break-all" : "break-all"}>{text}</Link> : <span className="break-words">{text}</span>}
+    {href ? <Link href={href as any} target="_blank" rel="noopener noreferrer" className={isLink ? "text-primary hover:underline break-all" : "break-all"}>{text}</Link> : <span className="break-words">{text}</span>}
   </div>
 );
 

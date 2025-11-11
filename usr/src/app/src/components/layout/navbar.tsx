@@ -74,7 +74,7 @@ export function Navbar() {
       const userProfileStr = localStorage.getItem(`apsconnect_user_${user.uid}`);
       if (userProfileStr) {
         const userProfile = JSON.parse(userProfileStr) as UserProfile;
-        setUserAvatarUrl(userProfile.avatarDataUrl);
+        setUserAvatarUrl(userProfile.avatar_url);
       } else {
         setUserAvatarUrl(undefined);
       }
@@ -90,7 +90,7 @@ export function Navbar() {
         const updatedProfileStr = localStorage.getItem(`apsconnect_user_${user.uid}`);
         if (updatedProfileStr) {
           const updatedProfile = JSON.parse(updatedProfileStr) as UserProfile;
-          setUserAvatarUrl(updatedProfile.avatarDataUrl);
+          setUserAvatarUrl(updatedProfile.avatar_url);
         } else {
            setUserAvatarUrl(undefined);
         }
@@ -158,7 +158,7 @@ export function Navbar() {
             return (
                 <Link
                     key={item.href}
-                    href={item.href}
+                    href={item.href as any}
                     className={cn(
                     "transition-colors hover:text-primary relative flex items-center",
                     pathname === item.href ? "text-primary" : "text-foreground/60",

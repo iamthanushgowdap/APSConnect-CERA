@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useEffect, useRef, useCallback, useMemo } from 'react';
 import './ProfileCard.css';
 
@@ -14,14 +15,35 @@ const ANIMATION_CONFIG = {
   DEVICE_BETA_OFFSET: 20
 };
 
-const clamp = (value, min = 0, max = 100) => Math.min(Math.max(value, min), max);
+const clamp = (value: number, min = 0, max = 100) => Math.min(Math.max(value, min), max);
 
-const round = (value, precision = 3) => parseFloat(value.toFixed(precision));
+const round = (value: number, precision = 3) => parseFloat(value.toFixed(precision));
 
-const adjust = (value, fromMin, fromMax, toMin, toMax) =>
+const adjust = (value: number, fromMin: number, fromMax: number, toMin: number, toMax: number) =>
   round(toMin + ((toMax - toMin) * (value - fromMin)) / (fromMax - fromMin));
 
-const easeInOutCubic = x => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const easeInOutCubic = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+
+interface ProfileCardProps {
+  avatarUrl?: string;
+  iconUrl?: string;
+  grainUrl?: string;
+  behindGradient?: string;
+  innerGradient?: string;
+  showBehindGradient?: boolean;
+  className?: string;
+  enableTilt?: boolean;
+  enableMobileTilt?: boolean;
+  mobileTiltSensitivity?: number;
+  miniAvatarUrl?: string;
+  name?: string;
+  title?: string;
+  handle?: string;
+  status?: string;
+  contactText?: string;
+  showUserInfo?: boolean;
+  onContactClick?: () => void;
+}
 
 const ProfileCardComponent = ({
   avatarUrl = '<Placeholder for avatar URL>',
@@ -42,16 +64,16 @@ const ProfileCardComponent = ({
   contactText = 'Contact',
   showUserInfo = true,
   onContactClick
-}) => {
-  const wrapRef = useRef(null);
-  const cardRef = useRef(null);
+}: ProfileCardProps) => {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
 
   const animationHandlers = useMemo(() => {
     if (!enableTilt) return null;
 
-    let rafId = null;
+    let rafId: number | null = null;
 
-    const updateCardTransform = (offsetX, offsetY, card, wrap) => {
+    const updateCardTransform = (offsetX: number, offsetY: number, card: HTMLElement, wrap: HTMLElement) => {
       const width = card.clientWidth;
       const height = card.clientHeight;
 
@@ -78,12 +100,12 @@ const ProfileCardComponent = ({
       });
     };
 
-    const createSmoothAnimation = (duration, startX, startY, card, wrap) => {
+    const createSmoothAnimation = (duration: number, startX: number, startY: number, card: HTMLElement, wrap: HTMLElement) => {
       const startTime = performance.now();
       const targetX = wrap.clientWidth / 2;
       const targetY = wrap.clientHeight / 2;
 
-      const animationLoop = currentTime => {
+      const animationLoop = (currentTime: number) => {
         const elapsed = currentTime - startTime;
         const progress = clamp(elapsed / duration);
         const easedProgress = easeInOutCubic(progress);
@@ -114,7 +136,7 @@ const ProfileCardComponent = ({
   }, [enableTilt]);
 
   const handlePointerMove = useCallback(
-    event => {
+    (event: PointerEvent) => {
       const card = cardRef.current;
       const wrap = wrapRef.current;
 

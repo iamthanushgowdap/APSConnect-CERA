@@ -150,7 +150,6 @@ export interface UserProfile {
   linkedin_url?: string;
   github_url?: string;
   portfolio_url?: string;
-  display_name?: string; // Duplicate field?
   faculty_title?: string;
   password?: string; // Should not be stored in plain text!
 }

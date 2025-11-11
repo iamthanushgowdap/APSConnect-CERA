@@ -141,7 +141,7 @@ export function Footer() {
             {SiteConfig.footerNav?.map((item) => (
                 <Link
                 key={item.href}
-                href={item.href}
+                href={item.href as any}
                 className="text-sm text-muted-foreground hover:text-primary"
                 >
                 {item.title}
@@ -153,7 +153,7 @@ export function Footer() {
                 {socialNavItems.map((item) => (
                   <Link
                     key={item.platform}
-                    href={item.href!}
+                    href={item.href! as any}
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label={item.platform}

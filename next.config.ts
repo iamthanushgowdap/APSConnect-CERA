@@ -6,6 +6,7 @@ const pwaConfig = withPWA({
   register: true,
   skipWaiting: true,
   disable: process.env.NODE_ENV === 'development',
+  maximumFileSizeToCacheInBytes: 10 * 1024 * 1024, // 10MB
 });
 
 const nextConfig: NextConfig = {

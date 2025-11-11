@@ -58,12 +58,12 @@ export default function AdminViewPostsPage() {
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground mb-4">
-            This is the admin view for all posts. Currently, all posts are visible on the main <Link href="/feed" className="text-primary hover:underline">Activity Feed</Link>.
+            This is the admin view for all posts. Currently, all posts are visible on the main <Link href={"/feed" as any} className="text-primary hover:underline">Activity Feed</Link>.
           </p>
           <p className="text-muted-foreground">
             Future enhancements could include specific admin actions here like bulk operations, detailed analytics, or content moderation tools.
           </p>
-            <Link href="/feed">
+            <Link href={"/feed" as any}>
               <Button className="mt-4">View Activity Feed</Button>
             </Link>
         </CardContent>
