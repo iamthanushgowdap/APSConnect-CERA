@@ -1,13 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 const { createClient } = require('@supabase/supabase-js');
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
 export async function POST(request: NextRequest) {
   try {
+    // Check if required environment variables are available
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      console.error('❌ Missing required environment variables for resume generation');
+      console.error('SUPABASE_URL:', !!supabaseUrl);
+      console.error('SERVICE_ROLE_KEY:', !!serviceRoleKey);
+      return NextResponse.json({
+        success: false,
+        error: 'Server configuration error: Missing Supabase credentials'
+      }, { status: 500 });
+    }
+
+    // Create Supabase client
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+
     const { userId } = await request.json();
 
     if (!userId) {
