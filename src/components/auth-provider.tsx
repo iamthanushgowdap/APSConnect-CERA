@@ -198,48 +198,71 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     let mounted = true;
-    let authInitialized = false;
+
+    // Safety timeout to prevent infinite loading (30 seconds max)
+    const safetyTimeout = setTimeout(() => {
+      if (mounted && isLoading) {
+        console.error('🚨 SAFETY TIMEOUT: Auth initialization took too long, forcing loading to false');
+        setIsLoading(false);
+      }
+    }, 30000);
 
     const initializeAuth = async () => {
       try {
         console.log('🔐 Initializing authentication...');
-        const { data: { session }, error } = await supabase.auth.getSession();
+
+        // Always set loading to false when done, regardless of outcome
+        const finishLoading = () => {
+          if (mounted) {
+            console.log('🏁 Auth initialization complete');
+            setIsLoading(false);
+            clearTimeout(safetyTimeout); // Clear safety timeout
+          }
+        };
+
+        // Add timeout to session check (10 seconds)
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Session check timeout')), 10000)
+        );
+
+        const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]) as any;
 
         if (error) {
           console.error('❌ Auth session error:', error);
-          if (mounted) setIsLoading(false);
+          finishLoading();
           return;
         }
 
         if (session?.user && mounted) {
           console.log('✅ Found existing session, loading profile...');
-          // Don't set isLoading to false yet - wait for profile to load
-          const userData = await fetchProfile(session.user.id);
+
+          // Add timeout to profile loading (15 seconds)
+          const profilePromise = fetchProfile(session.user.id);
+          const profileTimeoutPromise = new Promise<User | null>((_, reject) =>
+            setTimeout(() => reject(new Error('Profile loading timeout')), 15000)
+          );
+
+          const userData = await Promise.race([profilePromise, profileTimeoutPromise]);
+
           if (userData && mounted) {
-            console.log('✅ Profile loaded successfully');
-
-            // Always ensure groups are assigned for existing sessions
-            console.log('🔗 Ensuring groups are assigned for existing session...');
-            await assignUserToGroups(userData);
-
-            authInitialized = true;
+            console.log('✅ Profile loaded successfully for existing session');
+            // Groups are already assigned in fetchProfile, no need to do it again here
           } else {
-            console.log('⚠️ Profile load failed');
+            console.log('⚠️ Profile load failed for existing session');
           }
         } else {
-          console.log('ℹ️ No existing session found');
-          authInitialized = true; // No session to load, so we're done
+          console.log('ℹ️ No existing session found - user needs to login');
         }
 
-        // Only set loading to false after we've fully initialized
-        if (mounted) {
-          console.log('🏁 Auth initialization complete');
-          setIsLoading(false);
-        }
+        finishLoading();
 
       } catch (error) {
         console.error('❌ Error initializing auth:', error);
-        if (mounted) setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+          clearTimeout(safetyTimeout);
+        }
       }
     };
 
@@ -253,33 +276,37 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (event === 'SIGNED_IN' && session?.user) {
         console.log('✅ User signed in, loading profile...');
-        // Don't set isLoading to false yet - wait for profile to load
-        const userData = await fetchProfile(session.user.id);
+        setIsLoading(true); // Start loading for sign-in process
+
+        // Add timeout to profile loading (15 seconds)
+        const profilePromise = fetchProfile(session.user.id);
+        const profileTimeoutPromise = new Promise<User | null>((_, reject) =>
+          setTimeout(() => reject(new Error('Sign-in profile loading timeout')), 15000)
+        );
+
+        const userData = await Promise.race([profilePromise, profileTimeoutPromise]);
+
         if (userData) {
           console.log('✅ Profile loaded for signed-in user');
-
-          // Automatically assign user to appropriate groups
-          console.log('🔗 Assigning user to groups...');
-          await assignUserToGroups(userData);
-
-          authInitialized = true;
+          // Groups are already assigned in fetchProfile
+        } else {
+          console.log('⚠️ Profile load failed during sign-in');
         }
+
+        // Always finish loading after sign-in process
+        setIsLoading(false);
+
       } else if (event === 'SIGNED_OUT') {
         console.log('🚪 User signed out');
         setUser(null);
         clearCache();
-        authInitialized = true;
-      }
-
-      // For SIGNED_IN events, we wait for profile to load before setting loading to false
-      // For SIGNED_OUT, we can set it immediately
-      if (event === 'SIGNED_OUT' || (event === 'SIGNED_IN' && authInitialized)) {
         setIsLoading(false);
       }
     });
 
     return () => {
       mounted = false;
+      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
   }, []);
