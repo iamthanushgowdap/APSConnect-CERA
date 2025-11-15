@@ -1,242 +1,147 @@
-import { NextRequest, NextResponse } from 'next/server';
-import puppeteer from 'puppeteer-core';
-import { execSync } from 'child_process';
-import * as fs from 'fs';
-import { createClient } from '@supabase/supabase-js';
+import { NextRequest, NextResponse } from "next/server";
+import chromium from "@sparticuz/chromium";
+import puppeteer from "puppeteer-core";
+import { createClient } from "@supabase/supabase-js";
 
-export async function POST(request: NextRequest) {
-  let browser;
+export const runtime = "nodejs"; // IMPORTANT: Disable Edge Runtime
+
+export async function POST(req: NextRequest) {
+  let browser = null;
 
   try {
-    console.log('📄 PDF Generation API called');
+    console.log("📄 Resume PDF Generation API Called");
 
-    // Check authentication using Authorization header
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.error('❌ No authorization header');
+    // ----------------------------
+    // ✅ AUTH VALIDATION
+    // ----------------------------
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json(
-        { error: 'Authentication required' },
+        { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
-    const token = authHeader.substring(7);
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const token = authHeader.replace("Bearer ", "");
 
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('❌ Supabase configuration missing');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${token}` } } }
+    );
 
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    });
-
-    // Set the session with the token
     await supabase.auth.setSession({
       access_token: token,
-      refresh_token: '', // Not needed for verification
+      refresh_token: "",
     });
 
-    // Verify user authentication
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      console.error('❌ Authentication failed:', userError);
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      );
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Check user role - only students can generate resumes
-    const userId = user.id;
-    const { data: userProfile, error: profileError } = await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', userId)
+    // ----------------------------
+    // 🔎 VALIDATE ROLE = STUDENT
+    // ----------------------------
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("role")
+      .eq("id", user.id)
       .single();
 
-    if (profileError || !userProfile) {
-      console.error('❌ Failed to get user profile:', profileError);
+    if (profile?.role !== "student") {
       return NextResponse.json(
-        { error: 'User profile not found' },
+        { error: "Resume generation allowed only for students" },
         { status: 403 }
       );
     }
 
-    if (userProfile.role !== 'student') {
-      console.error('❌ Access denied - only students can generate resumes. User role:', userProfile.role);
-      return NextResponse.json(
-        { error: 'Resume generation is only available for students' },
-        { status: 403 }
-      );
-    }
-
-    console.log('✅ User authenticated and authorized for resume generation');
-
-    const { html, fileName } = await request.json();
-    console.log('📄 Request data:', { htmlLength: html?.length, fileName });
+    // ----------------------------
+    // 📥 Get HTML + File Name
+    // ----------------------------
+    const { html, fileName } = await req.json();
 
     if (!html || !fileName) {
-      console.error('❌ Missing required fields:', { html: !!html, fileName: !!fileName });
       return NextResponse.json(
-        { error: 'HTML content and filename are required' },
+        { error: "Missing HTML or File Name" },
         { status: 400 }
       );
     }
 
-    console.log('🚀 Finding Chrome executable...');
-    // Find Chrome executable - multiple fallback methods
-    let executablePath;
+    // ----------------------------
+    // 🌍 ENVIRONMENT DETECTION
+    // ----------------------------
+    const isVercel = (process.env.VERCEL === '1' || !!process.env.VERCEL_ENV || !!process.env.VERCEL_URL) && process.env.NODE_ENV === 'production';
+    console.log("📄 Environment detection:", { VERCEL: process.env.VERCEL, VERCEL_ENV: process.env.VERCEL_ENV, VERCEL_URL: process.env.VERCEL_URL, NODE_ENV: process.env.NODE_ENV, isVercel });
+    console.log("📄 Environment:", isVercel ? "Vercel" : "Local Development");
 
-    // Method 1: Check common installation paths
-    const possiblePaths = [
-      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-      `C:\\Users\\${process.env.USERNAME}\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe`,
-      'C:\\Program Files\\Chromium\\Application\\chrome.exe'
-    ];
+    if (!isVercel) {
+      // LOCAL DEVELOPMENT - Use regular Puppeteer
+      console.log("🏠 Using local Puppeteer for development");
+      const puppeteer = (await import('puppeteer')).default;
 
-    for (const path of possiblePaths) {
-      try {
-        fs.accessSync(path);
-        executablePath = path;
-        console.log('✅ Found Chrome at:', executablePath);
-        break;
-      } catch {
-        // Path doesn't exist, try next one
-      }
-    }
-
-    // Method 2: Try system PATH
-    if (!executablePath) {
-      try {
-        const result = execSync('where chrome 2>nul || where chromium 2>nul', { encoding: 'utf8' });
-        executablePath = result.trim().split('\n')[0];
-        console.log('✅ Found Chrome in PATH at:', executablePath);
-      } catch {
-        // Not found in PATH either
-      }
-    }
-
-    if (!executablePath) {
-      console.error('❌ Chrome not found in any location');
-      return NextResponse.json(
-        { error: 'Chrome browser not found. Please install Google Chrome from https://www.google.com/chrome/' },
-        { status: 500 }
-      );
-    }
-
-    console.log('🚀 Launching Puppeteer browser...');
-    // Try to launch browser with detected executable, fallback to default
-    try {
       browser = await puppeteer.launch({
-        executablePath,
         headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--disable-web-security',
-          '--disable-features=VizDisplayCompositor',
-          '--disable-background-timer-throttling',
-          '--disable-renderer-backgrounding',
-          '--disable-backgrounding-occluded-windows'
-        ]
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
-      console.log('✅ Browser launched successfully with executable path');
-    } catch (launchError) {
-      console.warn('⚠️ Failed to launch with executable path, trying default browser...', launchError);
-      try {
-        // Fallback: try launching without executablePath (uses system default browser)
-        browser = await puppeteer.launch({
-          headless: true,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu'
-          ]
-        });
-        console.log('✅ Browser launched successfully with system default');
-      } catch (fallbackError) {
-        console.error('❌ Failed to launch browser with any method:', fallbackError);
-        return NextResponse.json(
-          { error: 'Could not launch browser for PDF generation. Please ensure Chrome or Chromium is installed.' },
-          { status: 500 }
-        );
-      }
+
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: "networkidle0" });
+
+      const pdf = await page.pdf({
+        format: "A4",
+        printBackground: true,
+      });
+
+      console.log("✅ PDF Generated (Local):", pdf.length, "bytes");
+
+      return new NextResponse(Buffer.from(pdf), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${fileName}"`,
+        },
+      });
+    } else {
+      // VERCEL DEPLOYMENT - Use @sparticuz/chromium
+      console.log("🚀 Launching serverless Chromium...");
+
+      browser = await puppeteer.launch({
+        args: chromium.args,
+        executablePath: await chromium.executablePath(),
+        headless: true,
+        userDataDir: "/tmp/chromium",
+      });
+
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: "networkidle0" });
+
+      // ----------------------------
+      // 📄 Generate the PDF
+      // ----------------------------
+      const pdf = await page.pdf({
+        format: "A4",
+        printBackground: true,
+      });
+
+      console.log("✅ PDF Generated (Vercel):", pdf.length, "bytes");
+
+      return new NextResponse(Buffer.from(pdf), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${fileName}"`,
+        },
+      });
     }
 
-    console.log('📄 Creating new page...');
-    const page = await browser.newPage();
-
-    // Set viewport for better rendering
-    await page.setViewport({ width: 794, height: 1123 }); // A4 dimensions
-
-    console.log('📄 Setting HTML content...');
-    // Set HTML content
-    await page.setContent(html, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000
-    });
-
-    // Wait a bit for fonts and styles to load
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    console.log('📄 Generating PDF...');
-    // Generate PDF
-    const pdfBuffer = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      displayHeaderFooter: false,
-      margin: {
-        top: '0px',
-        right: '0px',
-        bottom: '0px',
-        left: '0px',
-      },
-      preferCSSPageSize: true
-    });
-
-    console.log('📄 Closing browser...');
-
-    console.log('✅ PDF generated successfully, size:', pdfBuffer.length);
-
-    // Return PDF as response
-    return new NextResponse(Buffer.from(pdfBuffer), {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${fileName}"`,
-      },
-    });
-
-  } catch (error) {
-    console.error('❌ PDF generation error:', error);
-    console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-
+  } catch (err: any) {
+    console.error("❌ PDF Generation Error:", err);
     return NextResponse.json(
-      { error: 'Failed to generate PDF', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: "PDF generation failed", details: err.message },
       { status: 500 }
     );
   } finally {
     if (browser) {
-      try {
-        await browser.close();
-        console.log('📄 Browser closed successfully');
-      } catch (closeError) {
-        console.error('❌ Error closing browser:', closeError);
-      }
+      await browser.close().catch(() => {});
     }
   }
 }

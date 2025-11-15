@@ -94,6 +94,12 @@ export default function ProfileSettingsPage() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Handle client-side mounting
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | undefined>(undefined);
 
@@ -132,66 +138,66 @@ export default function ProfileSettingsPage() {
 
 
   useEffect(() => {
-    if (!authLoading) {
-      if (!authUser) {
-        router.push('/login');
-      } else {
-        // Check if user has a valid session before fetching profile
-        const checkSessionAndLoadProfile = async () => {
-          try {
-            const { data: session, error: sessionError } = await supabase.auth.getSession();
-            
-            if (sessionError || !session.session) {
-              console.error('No valid session found:', sessionError);
-              router.push('/login');
-              return;
-            }
+    const load = async () => {
+      try {
+        if (authLoading) return; // wait
 
-            console.log('Valid session found, loading profile...');
-            
-            // Test database connection first
-            const dbConnected = await testDatabaseConnection();
-            if (!dbConnected) {
-              toast({ title: "Database Error", description: "Cannot connect to database. Please check your connection.", variant: "destructive"});
-              router.push('/dashboard');
-              return;
-            }
-            
-            const profile = await getUserProfile(authUser.uid);
-            if (profile) {
-              setUserProfile(profile);
-              profileForm.reset({
-                displayName: profile.full_name || "", summary: profile.bio || "", phoneNumber: profile.phone || "", address: profile.address || "",
-                linkedinUrl: profile.linkedin_url || "", githubUrl: profile.github_url || "", portfolioUrl: profile.portfolio_url || "", pronouns: profile.pronouns || "",
-                education: profile.education || [], experience: profile.experience || [], projects: profile.projects || [],
-                skills: profile.skills?.map((skill: string) => ({ id: generateRandomId(), name: skill })) || [], // Convert string[] to SkillEntry[]
-                certifications: profile.certifications || [], achievements: profile.achievements || [],
-                placementCompany: profile.placement_company || "", placementJobTitle: profile.placement_job_title || "", referralInfo: profile.referral_info || "",
-              });
-              setAvatarPreview(profile.avatar_url);
-            } else {
-              console.warn('No profile found for user, this might be normal for new users');
-              // For new users without profiles, we can show empty form
-              setUserProfile({
-                id: authUser.uid,
-                email: authUser.email || '',
-                role: authUser.role || 'student',
-                is_approved: true,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              } as UserProfile);
-            }
-          } catch (error) {
-            console.error('Error in session/profile check:', error);
-            toast({ title: "Authentication Error", description: "Please log in again.", variant: "destructive"});
-            router.push('/login');
-          }
+        // Check Supabase session first
+        const { data: sessionData } = await supabase.auth.getSession();
+
+        // If both authUser and session missing → logout
+        if (!authUser && !sessionData.session) {
+          console.log("No auth user and no session, redirecting to login");
+          router.push("/login");
           setPageLoading(false);
-        };
-        
-        checkSessionAndLoadProfile();
+          return;
+        }
+
+        // If session exists but authUser not yet ready → WAIT
+        if (!authUser && sessionData.session) {
+          console.log("Waiting for auth context to hydrate...");
+          // Don't set loading to false here, wait for authUser to be available
+          return; 
+        }
+
+        // NOW LOAD PROFILE
+        if (authUser) {
+          console.log("Loading profile for user:", authUser.uid);
+          const profile = await getUserProfile(authUser.uid);
+          if (profile) {
+            console.log("Profile loaded successfully");
+            setUserProfile(profile);
+            profileForm.reset({
+              displayName: profile.full_name || "", summary: profile.bio || "", phoneNumber: profile.phone || "", address: profile.address || "",
+              linkedinUrl: profile.linkedin_url || "", githubUrl: profile.github_url || "", portfolioUrl: profile.portfolio_url || "", pronouns: profile.pronouns || "",
+              education: profile.education || [], experience: profile.experience || [], projects: profile.projects || [],
+              skills: profile.skills?.map((skill: string) => ({ id: generateRandomId(), name: skill })) || [], // Convert string[] to SkillEntry[]
+              certifications: profile.certifications || [], achievements: profile.achievements || [],
+              placementCompany: profile.placement_company || "", placementJobTitle: profile.placement_job_title || "", referralInfo: profile.referral_info || "",
+            });
+            setAvatarPreview(profile.avatar_url);
+          } else {
+            console.warn('No profile found for user, this might be normal for new users');
+            // For new users without profiles, we can show empty form
+            setUserProfile({
+              id: authUser.uid,
+              email: authUser.email || '',
+              role: authUser.role || 'student',
+              is_approved: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            } as UserProfile);
+          }
+        }
+      } catch (error) {
+        console.error("Error in profile loading:", error);
+        toast({ title: "Error", description: "Failed to load profile", variant: "destructive" });
+      } finally {
+        setPageLoading(false);
       }
-    }
+    };
+
+    load();
   }, [authUser, authLoading, router, profileForm, toast]);
 
 
@@ -732,8 +738,32 @@ export default function ProfileSettingsPage() {
   `;
   };
 
-  if (pageLoading || authLoading) return <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-[calc(100vh-10rem)]"><SimpleRotatingSpinner className="h-12 w-12 text-primary" /></div>;
-  if (!authUser || !userProfile) return <div className="container mx-auto px-4 py-8 text-center"><Card className="w-full max-w-md mx-auto shadow-xl"><CardHeader><CardTitle className="text-destructive text-xl sm:text-2xl">Access Denied</CardTitle></CardHeader><CardContent><ShieldCheck className="h-12 w-12 sm:h-16 sm:w-16 text-destructive mx-auto mb-4" /><p className="text-md sm:text-lg text-muted-foreground">You must be logged in to view this page.</p><Link href="/login"><Button variant="outline" className="mt-6">Go to Login</Button></Link></CardContent></Card></div>;
+  if (!mounted || pageLoading || authLoading) {
+    return (
+      <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-[calc(100vh-10rem)]">
+        <SimpleRotatingSpinner className="h-12 w-12 text-primary" />
+      </div>
+    );
+  }
+
+  if (!authUser || !userProfile) {
+    return (
+      <div className="container mx-auto px-4 py-8 text-center">
+        <Card className="w-full max-w-md mx-auto shadow-xl">
+          <CardHeader>
+            <CardTitle className="text-destructive text-xl sm:text-2xl">Access Denied</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ShieldCheck className="h-12 w-12 sm:h-16 sm:w-16 text-destructive mx-auto mb-4" />
+            <p className="text-md sm:text-lg text-muted-foreground">You must be logged in to view this page.</p>
+            <Link href="/login">
+              <Button variant="outline" className="mt-6">Go to Login</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
   
   const isStudent = userProfile.role === 'student';
   const isAlumni = userProfile.role === 'alumni';
