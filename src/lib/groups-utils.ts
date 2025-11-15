@@ -278,23 +278,32 @@ export async function assignUserToGroups(user: User): Promise<void> {
 
       // Faculty get groups based on assigned_branches and assigned_semesters
       if (profile.assigned_branches && profile.assigned_branches.length > 0) {
-        const { data: facultyGroups, error: facultyGroupsError } = await supabase
+        // First, get all official groups for assigned branches
+        let query = supabase
           .from('groups')
           .select('id, branch, semester, type')
-          .in('branch', profile.assigned_branches);
+          .in('branch', profile.assigned_branches)
+          .eq('type', 'official');
+
+        // If assigned_semesters is specified, also filter by semester
+        if (profile.assigned_semesters && profile.assigned_semesters.length > 0) {
+          query = query.in('semester', profile.assigned_semesters);
+        }
+
+        const { data: facultyGroups, error: facultyGroupsError } = await query;
 
         if (!facultyGroupsError && facultyGroups) {
+          console.log(`✅ Found ${facultyGroups.length} official groups for faculty`);
           facultyGroups.forEach(group => {
-            // Only assign to official groups (department and class groups)
-            if (group.type === 'official') {
-              memberships.push({
-                group_id: group.id,
-                user_id: user.uid,
-                role: 'faculty',
-                can_post: true
-              });
-            }
+            memberships.push({
+              group_id: group.id,
+              user_id: user.uid,
+              role: 'faculty',
+              can_post: true
+            });
           });
+        } else {
+          console.log('❌ Error fetching faculty groups:', facultyGroupsError);
         }
       }
 
