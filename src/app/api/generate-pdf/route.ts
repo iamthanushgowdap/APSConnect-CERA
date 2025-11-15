@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import puppeteer from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 
 export const runtime = "nodejs"; // IMPORTANT: Disable Edge Runtime
+export const maxDuration = 30; // Increase timeout for PDF generation
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,55 +34,39 @@ async function generatePDF(req: NextRequest) {
   let browser = null;
 
   try {
-    console.log("🚀 PDF Generation function started");
-    console.log("📄 Resume PDF Generation API Called");
+    console.log("🚀 Starting PDF generation...");
 
     // ----------------------------
     // ✅ AUTH VALIDATION
     // ----------------------------
-    console.log("🔐 Starting auth validation");
     const authHeader = req.headers.get("authorization");
-    console.log("🔑 Auth header present:", !!authHeader);
     if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const token = authHeader.replace("Bearer ", "");
-
-    console.log("🔧 Creating Supabase client");
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
 
-    console.log("🔄 Setting session");
     await supabase.auth.setSession({
       access_token: token,
       refresh_token: "",
     });
 
-    console.log("👤 Getting user");
     const { data: { user } } = await supabase.auth.getUser();
-    console.log("✅ User retrieved:", !!user);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // ----------------------------
-    // 🔎 VALIDATE ROLE = STUDENT
-    // ----------------------------
-    console.log("👤 Checking user role");
+    // Check role
     const { data: profile } = await supabase
       .from("user_profiles")
       .select("role")
       .eq("id", user.id)
       .single();
-
-    console.log("✅ Profile retrieved:", !!profile, "Role:", profile?.role);
 
     if (profile?.role !== "student") {
       return NextResponse.json(
@@ -92,136 +79,43 @@ async function generatePDF(req: NextRequest) {
     // 📥 Get HTML + File Name
     // ----------------------------
     const { html, fileName } = await req.json();
-
     if (!html || !fileName) {
-      return NextResponse.json(
-        { error: "Missing HTML or File Name" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing HTML or File Name" }, { status: 400 });
     }
 
+    console.log("📄 Launching browser...");
+
     // ----------------------------
-    // 🌍 ENVIRONMENT DETECTION
+    // 🌍 VERCEL PDF GENERATION
     // ----------------------------
-    const isVercel = (process.env.VERCEL === '1' || !!process.env.VERCEL_ENV || !!process.env.VERCEL_URL) && process.env.NODE_ENV === 'production';
-    console.log("📄 Environment detection:", { VERCEL: process.env.VERCEL, VERCEL_ENV: process.env.VERCEL_ENV, VERCEL_URL: process.env.VERCEL_URL, NODE_ENV: process.env.NODE_ENV, isVercel });
-    console.log("📄 Environment:", isVercel ? "Vercel" : "Local Development");
+    browser = await puppeteer.launch({
+      args: chromium.args,
+      executablePath: await chromium.executablePath(),
+      headless: true,
+      userDataDir: "/tmp/chromium",
+    });
 
-    if (!isVercel) {
-      // LOCAL DEVELOPMENT - Use regular Puppeteer
-      console.log("🏠 Using local Puppeteer for development");
-      const puppeteer = (await import('puppeteer')).default;
+    console.log("✅ Browser launched");
 
-      browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
+    const page = await browser.newPage();
+    console.log("✅ Page created");
 
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "networkidle0" });
+    console.log("✅ Content set");
 
-      const pdf = await page.pdf({
-        format: "A4",
-        printBackground: true,
-      });
+    const pdf = await page.pdf({
+      format: "A4",
+      printBackground: true,
+    });
 
-      console.log("✅ PDF Generated (Local):", pdf.length, "bytes");
+    console.log("✅ PDF generated:", pdf.length, "bytes");
 
-      return new NextResponse(Buffer.from(pdf), {
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="${fileName}"`,
-        },
-      });
-    } else {
-      // VERCEL DEPLOYMENT - Use @sparticuz/chromium
-      console.log("🚀 Launching serverless Chromium...");
-
-      try {
-        console.log("📦 Importing @sparticuz/chromium...");
-        const chromium = (await import('@sparticuz/chromium')).default;
-        console.log("✅ @sparticuz/chromium imported successfully");
-
-        console.log("📦 Importing puppeteer-core...");
-        const puppeteer = (await import('puppeteer-core')).default;
-        console.log("✅ puppeteer-core imported successfully");
-
-        console.log("🔧 Getting Chromium executable path...");
-        const executablePath = await chromium.executablePath();
-        console.log("✅ Executable path:", executablePath);
-
-        console.log("⚙️ Chromium args:", chromium.args);
-
-        browser = await puppeteer.launch({
-          args: chromium.args,
-          executablePath: executablePath,
-          headless: true,
-          userDataDir: "/tmp/chromium",
-        });
-        console.log("✅ Browser launched successfully");
-
-        const page = await browser.newPage();
-        console.log("✅ New page created");
-
-        console.log("📄 Setting page content...");
-        await page.setContent(html, { waitUntil: "networkidle0" });
-        console.log("✅ Page content set");
-
-        // ----------------------------
-        // 📄 Generate the PDF
-        // ----------------------------
-        console.log("📄 Generating PDF...");
-        const pdf = await page.pdf({
-          format: "A4",
-          printBackground: true,
-        });
-
-        console.log("✅ PDF Generated (Vercel):", pdf.length, "bytes");
-
-        return new NextResponse(Buffer.from(pdf), {
-          headers: {
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `attachment; filename="${fileName}"`,
-          },
-        });
-      } catch (vercelError: any) {
-        console.error("❌ Vercel-specific error:", vercelError);
-        console.error("Error name:", vercelError.name);
-        console.error("Error message:", vercelError.message);
-        console.error("Error stack:", vercelError.stack);
-
-        // Try fallback to local puppeteer
-        console.log("🔄 Trying fallback to local Puppeteer...");
-        try {
-          const puppeteer = (await import('puppeteer')).default;
-
-          browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-          });
-
-          const page = await browser.newPage();
-          await page.setContent(html, { waitUntil: "networkidle0" });
-
-          const pdf = await page.pdf({
-            format: "A4",
-            printBackground: true,
-          });
-
-          console.log("✅ PDF Generated (Fallback):", pdf.length, "bytes");
-
-          return new NextResponse(Buffer.from(pdf), {
-            headers: {
-              "Content-Type": "application/pdf",
-              "Content-Disposition": `attachment; filename="${fileName}"`,
-            },
-          });
-        } catch (fallbackError: any) {
-          console.error("❌ Fallback also failed:", fallbackError);
-          throw vercelError; // Throw original error
-        }
-      }
-    }
+    return new NextResponse(Buffer.from(pdf), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${fileName}"`,
+      },
+    });
 
   } catch (err: any) {
     console.error("❌ PDF Generation Error:", err);
@@ -231,6 +125,7 @@ async function generatePDF(req: NextRequest) {
     );
   } finally {
     if (browser) {
+      console.log("🧹 Closing browser...");
       await browser.close().catch(() => {});
     }
   }
