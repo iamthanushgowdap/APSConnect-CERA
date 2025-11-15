@@ -1,11 +1,11 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import type { UserRole, Branch, UserProfile, Semester, NotificationPreferences } from '@/types';
+import type { UserRole, Branch, UserProfile, Semester, NotificationPreferences, Group } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { checkAndGenerateNotifications } from '@/lib/notification-manager';
-import { assignUserToGroups } from '@/lib/groups-utils';
+import { assignUserToGroups, getMyGroups } from '@/lib/groups-utils';
 
 export interface User {
   uid: string;
@@ -22,6 +22,7 @@ export interface User {
   avatarDataUrl?: string;
   pronouns?: string;
   notificationPreferences?: NotificationPreferences;
+  groups?: Group[]; // Add groups to user context
 }
 
 interface AuthContextType {
@@ -40,6 +41,7 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 // Cached profile data structure
 interface CachedProfile {
   user: User;
+  groupsTimestamp: number; // Separate timestamp for groups
   timestamp: number;
 }
 
@@ -67,13 +69,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Check if groups need refresh (shorter cache for groups)
+  const shouldRefreshGroups = (cached: CachedProfile): boolean => {
+    const GROUPS_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes for groups
+    return Date.now() - (cached.groupsTimestamp || 0) > GROUPS_CACHE_DURATION;
+  };
+
   // Cache profile data
-  const setCachedProfile = (userData: User) => {
-    const cached: CachedProfile = {
-      user: userData,
-      timestamp: Date.now()
-    };
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
+  const setCachedProfile = (userData: User, groupsRefreshed: boolean = false) => {
+    try {
+      const existing = localStorage.getItem(CACHE_KEY);
+      const existingCache: CachedProfile | null = existing ? JSON.parse(existing) : null;
+
+      const cached: CachedProfile = {
+        user: userData,
+        groupsTimestamp: groupsRefreshed ? Date.now() : (existingCache?.groupsTimestamp || Date.now()),
+        timestamp: Date.now()
+      };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
+    } catch (error) {
+      console.warn('Failed to cache profile:', error);
+    }
   };
 
   // Clear cache
@@ -88,7 +104,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const cached = getCachedProfile();
       if (cached && cached.uid === userId && cached.email) {
         console.log('✅ Using cached profile for user:', userId);
-        setUser(cached);
+        
+        // Check if groups need refresh
+        const cachedData = localStorage.getItem(CACHE_KEY);
+        const parsedCache: CachedProfile | null = cachedData ? JSON.parse(cachedData) : null;
+        const needsGroupsRefresh = parsedCache ? shouldRefreshGroups(parsedCache) : true;
+        
+        if (needsGroupsRefresh) {
+          console.log('📚 Cached groups are stale, refreshing...');
+          const userGroups = await getMyGroups(cached);
+          cached.groups = userGroups;
+          console.log('✅ Refreshed', userGroups.length, 'groups for cached user');
+          
+          setUser(cached);
+          setCachedProfile(cached, true); // Mark groups as refreshed
+        } else {
+          console.log('📚 Using cached groups');
+          setUser(cached);
+        }
+
+        // Always ensure groups are assigned when using cached profile
+        console.log('🔗 Ensuring groups are assigned for cached user...');
+        await assignUserToGroups(cached);
+
         return cached;
       }
 
@@ -110,6 +148,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             displayName: null,
             role: 'student',
             is_approved: true,
+            groups: [], // Empty groups for basic user
           };
           setUser(basicUser);
           return basicUser;
@@ -134,11 +173,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         avatarDataUrl: profile.avatar_url,
       };
 
+      // Load user's groups
+      console.log('📚 Loading user groups...');
+      const userGroups = await getMyGroups(userData);
+      userData.groups = userGroups;
+      console.log('✅ Loaded', userGroups.length, 'groups for user');
+
       // Cache the complete profile
-      setCachedProfile(userData);
+      setCachedProfile(userData, true); // Mark groups as refreshed for fresh profile
       setUser(userData);
 
-      console.log('✅ Fresh profile loaded and cached for user:', userId);
+      // Always assign groups for fresh profile load too
+      console.log('🔗 Assigning groups for freshly loaded user...');
+      await assignUserToGroups(userData);
+
+      console.log('✅ Fresh profile and groups loaded for user:', userId);
       return userData;
 
     } catch (error) {
@@ -168,6 +217,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const userData = await fetchProfile(session.user.id);
           if (userData && mounted) {
             console.log('✅ Profile loaded successfully');
+
+            // Always ensure groups are assigned for existing sessions
+            console.log('🔗 Ensuring groups are assigned for existing session...');
+            await assignUserToGroups(userData);
+
             authInitialized = true;
           } else {
             console.log('⚠️ Profile load failed');
@@ -276,6 +330,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // Fetch and cache complete profile
       const userData = await fetchProfile(data.user.id);
       if (!userData) throw new Error('Failed to load profile');
+
+      // Groups are already loaded in fetchProfile, no need to load again
+      console.log('✅ User signed in with', userData.groups?.length || 0, 'groups');
+
+      // Cache with groups marked as refreshed
+      setCachedProfile(userData, true);
 
       // Automatically assign user to appropriate groups
       console.log('🔗 Assigning groups to newly signed-in user...');

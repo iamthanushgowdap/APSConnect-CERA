@@ -245,8 +245,8 @@ export async function assignUserToGroups(user: User): Promise<void> {
 
       // Admins get all groups with posting rights
       memberships.push(
-        { group_id: 'admin_announcements', user_id: user.uid, role: 'admin', can_post: true },
-        { group_id: 'faculty_lounge', user_id: user.uid, role: 'admin', can_post: true }
+        { group_id: 'admin_announcements', user_id: user.uid, role: 'admin', can_post: true }
+        // Note: faculty_lounge is intentionally excluded - it's faculty only
       );
 
       // Get all existing groups and assign admin to them
@@ -286,8 +286,9 @@ export async function assignUserToGroups(user: User): Promise<void> {
           .eq('type', 'official');
 
         // If assigned_semesters is specified, also filter by semester
+        // But include 'ALL' semester groups (department groups) as well
         if (profile.assigned_semesters && profile.assigned_semesters.length > 0) {
-          query = query.in('semester', profile.assigned_semesters);
+          query = query.or(`semester.in.(${profile.assigned_semesters.join(',')}),semester.eq.ALL`);
         }
 
         const { data: facultyGroups, error: facultyGroupsError } = await query;
@@ -314,13 +315,13 @@ export async function assignUserToGroups(user: User): Promise<void> {
       if (profile.branch && profile.semester) {
         console.log(`📚 Looking for groups: branch=${profile.branch}, semester=${profile.semester}`);
 
-        // Get official groups for student's branch/semester
+        // Get official groups for student's branch (both semester-specific and department)
         const { data: studentOfficialGroups, error: officialError } = await supabase
           .from('groups')
           .select('id, branch, semester, type')
           .eq('branch', profile.branch)
-          .eq('semester', profile.semester)
-          .eq('type', 'official');
+          .eq('type', 'official')
+          .or(`semester.eq.${profile.semester},semester.eq.ALL`); // Include both specific semester and department groups
 
         if (!officialError && studentOfficialGroups) {
           console.log(`✅ Found ${studentOfficialGroups.length} official groups for ${profile.branch} ${profile.semester}`);
@@ -329,7 +330,7 @@ export async function assignUserToGroups(user: User): Promise<void> {
               group_id: group.id,
               user_id: user.uid,
               role: 'student',
-              can_post: false
+              can_post: false // Students can't post in official groups
             });
           });
         } else {

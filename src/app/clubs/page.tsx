@@ -12,7 +12,6 @@ import { SimpleRotatingSpinner } from '@/components/ui/loading-spinners';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { getMyGroups } from '@/lib/groups-utils';
 import type { Group } from '@/types';
 
 export default function ClubsPage() {
@@ -50,14 +49,14 @@ export default function ClubsPage() {
 
   const fetchGroups = useCallback(async () => {
     if (user) {
-      const groups = await getMyGroups(user);
+      // Use groups from auth context instead of fetching
+      const groups = user.groups || [];
       setMyGroups(groups);
 
       // If no groups found, try to populate them
       if (groups.length === 0) {
-        console.log('No groups found, attempting to populate groups...');
-        // This would be handled by a migration script or admin function
-        // For now, we'll just show the empty state
+        console.log('No groups found in context, attempting to populate groups...');
+        // This would be handled by the auth provider
       }
     }
   }, [user]);
