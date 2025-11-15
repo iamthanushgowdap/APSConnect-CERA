@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import puppeteer from "puppeteer-core";
-import chromium from "@sparticuz/chromium";
+import puppeteer from "puppeteer";
 
 export const runtime = "nodejs"; // IMPORTANT: Disable Edge Runtime
 export const maxDuration = 30; // Increase timeout for PDF generation
@@ -86,13 +85,11 @@ async function generatePDF(req: NextRequest) {
     console.log("📄 Launching browser...");
 
     // ----------------------------
-    // 🌍 VERCEL PDF GENERATION
+    // 🌍 PUPPETEER PDF GENERATION
     // ----------------------------
     browser = await puppeteer.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath(),
       headless: true,
-      userDataDir: "/tmp/chromium",
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
 
     console.log("✅ Browser launched");
