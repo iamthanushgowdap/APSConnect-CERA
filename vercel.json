@@ -1,7 +1,1 @@
-{
-  "functions": {
-    "src/app/api/generate-pdf/route.ts": {
-      "runtime": "@vercel/node@18"
-    }
-  }
-}
+{}
