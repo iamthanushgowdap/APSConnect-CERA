@@ -7,12 +7,15 @@ export async function POST(req: NextRequest) {
   let browser = null;
 
   try {
+    console.log("🚀 PDF Generation function started");
     console.log("📄 Resume PDF Generation API Called");
 
     // ----------------------------
     // ✅ AUTH VALIDATION
     // ----------------------------
+    console.log("🔐 Starting auth validation");
     const authHeader = req.headers.get("authorization");
+    console.log("🔑 Auth header present:", !!authHeader);
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json(
         { error: "Unauthorized" },
@@ -22,18 +25,22 @@ export async function POST(req: NextRequest) {
 
     const token = authHeader.replace("Bearer ", "");
 
+    console.log("🔧 Creating Supabase client");
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
 
+    console.log("🔄 Setting session");
     await supabase.auth.setSession({
       access_token: token,
       refresh_token: "",
     });
 
+    console.log("👤 Getting user");
     const { data: { user } } = await supabase.auth.getUser();
+    console.log("✅ User retrieved:", !!user);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -41,11 +48,14 @@ export async function POST(req: NextRequest) {
     // ----------------------------
     // 🔎 VALIDATE ROLE = STUDENT
     // ----------------------------
+    console.log("👤 Checking user role");
     const { data: profile } = await supabase
       .from("user_profiles")
       .select("role")
       .eq("id", user.id)
       .single();
+
+    console.log("✅ Profile retrieved:", !!profile, "Role:", profile?.role);
 
     if (profile?.role !== "student") {
       return NextResponse.json(
