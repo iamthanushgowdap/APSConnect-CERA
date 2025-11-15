@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import chromium from "@sparticuz/chromium";
-import puppeteer from "puppeteer-core";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs"; // IMPORTANT: Disable Edge Runtime
