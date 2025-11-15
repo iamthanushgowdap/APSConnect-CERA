@@ -197,6 +197,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    // Prevent multiple initializations across page navigations
+    const authInitializedKey = 'auth_initialized';
+    const hasInitialized = sessionStorage.getItem(authInitializedKey);
+
+    if (hasInitialized) {
+      console.log('🔄 Auth already initialized for this session, skipping...');
+      setIsLoading(false); // Ensure loading is false for already initialized sessions
+      return;
+    }
+
     let mounted = true;
 
     // Safety timeout to prevent infinite loading (30 seconds max)
@@ -217,6 +227,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             console.log('🏁 Auth initialization complete');
             setIsLoading(false);
             clearTimeout(safetyTimeout); // Clear safety timeout
+            sessionStorage.setItem(authInitializedKey, 'true'); // Mark as initialized
           }
         };
 
@@ -235,7 +246,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
 
         if (session?.user && mounted) {
-          console.log('✅ Found existing session, loading profile...');
+          console.log('✅ Found existing session, checking cache...');
+
+          // First check if we have valid cached data
+          const cachedUser = getCachedProfile();
+          if (cachedUser && cachedUser.uid === session.user.id) {
+            console.log('✅ Using cached user data - instant access!');
+            setUser(cachedUser);
+            finishLoading();
+            return;
+          }
+
+          console.log('📥 Loading profile from database...');
 
           // Add timeout to profile loading (15 seconds)
           const profilePromise = fetchProfile(session.user.id);
@@ -247,6 +269,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
           if (userData && mounted) {
             console.log('✅ Profile loaded successfully for existing session');
+            setUser(userData);
             // Groups are already assigned in fetchProfile, no need to do it again here
           } else {
             console.log('⚠️ Profile load failed for existing session');
@@ -288,6 +311,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         if (userData) {
           console.log('✅ Profile loaded for signed-in user');
+          setUser(userData);
           // Groups are already assigned in fetchProfile
         } else {
           console.log('⚠️ Profile load failed during sign-in');
@@ -300,14 +324,52 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         console.log('🚪 User signed out');
         setUser(null);
         clearCache();
+        sessionStorage.removeItem(authInitializedKey); // Clear initialization flag
         setIsLoading(false);
       }
     });
+
+    // Handle tab visibility changes (tab switching)
+    const handleVisibilityChange = () => {
+      if (!mounted) return;
+
+      if (document.visibilityState === 'visible') {
+        console.log('👁️ Tab became visible, checking auth status...');
+
+        // Only check if we have a cached user and are not currently loading
+        const cachedUser = getCachedProfile();
+        if (cachedUser && !isLoading) {
+          console.log('✅ Cached user found, ensuring data is fresh...');
+          // Quick check if groups need refresh (but don't set loading to true)
+          const cachedData = localStorage.getItem(CACHE_KEY);
+          const parsedCache: CachedProfile | null = cachedData ? JSON.parse(cachedData) : null;
+          const needsGroupsRefresh = parsedCache ? shouldRefreshGroups(parsedCache) : false;
+
+          if (needsGroupsRefresh) {
+            console.log('📚 Groups need refresh on tab switch...');
+            // Refresh groups in background without showing loading
+            getMyGroups(cachedUser).then(groups => {
+              if (mounted) {
+                cachedUser.groups = groups;
+                setUser({ ...cachedUser });
+                setCachedProfile(cachedUser, true);
+                console.log('✅ Groups refreshed on tab switch');
+              }
+            }).catch(error => {
+              console.warn('⚠️ Failed to refresh groups on tab switch:', error);
+            });
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       mounted = false;
       clearTimeout(safetyTimeout);
       subscription.unsubscribe();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
