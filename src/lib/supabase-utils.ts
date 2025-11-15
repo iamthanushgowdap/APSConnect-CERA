@@ -6,100 +6,37 @@ export { supabase };
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
   console.log('🔍 Fetching profile for userId:', userId);
 
-  // First check if user is authenticated
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-  console.log('🔐 Auth session check:', { hasSession: !!session, sessionError });
+  try {
+    // Single optimized query to get profile by user ID
+    const { data: profile, error } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
 
-  if (!session) {
-    console.error('❌ No active session found');
+    if (error) {
+      if (error.code === 'PGRST116') {
+        console.log('⚠️ Profile not found, creating basic profile for:', userId);
+        // Create basic profile for new users
+        return await createUserProfileForce({
+          id: userId,
+          email: '',
+          role: 'student',
+          is_approved: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as UserProfile);
+      }
+      console.error('❌ Database error fetching profile:', error);
+      return null;
+    }
+
+    console.log('✅ Profile found for user:', userId);
+    return profile as UserProfile;
+  } catch (error) {
+    console.error('❌ Error in getUserProfile:', error);
     return null;
   }
-
-  // First try to get profile by user ID
-  const { data, error } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('id', userId)
-    .single();
-
-  if (!error && data) {
-    console.log('✅ Profile found by user ID:', {
-      id: data.id,
-      email: data.email,
-      full_name: data.full_name,
-      branch: data.branch,
-      semester: data.semester,
-      department: data.department,
-      year_of_study: data.year_of_study,
-      usn: data.usn,
-      student_id: data.student_id
-    });
-    return data as UserProfile;
-  }
-
-  // If no profile found by ID, try to find by email and update it
-  console.log('🔄 Profile not found by ID, checking by email...');
-  const { data: emailData, error: emailError } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('email', session.user?.email)
-    .single();
-
-  if (!emailError && emailData) {
-    console.log('📝 Found profile by email, updating user ID...');
-    try {
-      // Update the existing profile to use the correct user ID
-      const { data: updatedData, error: updateError } = await supabase
-        .from('user_profiles')
-        .update({ id: userId })
-        .eq('email', session.user.email)
-        .select()
-        .single();
-
-      if (!updateError && updatedData) {
-        console.log('✅ Profile updated with correct user ID:', updatedData);
-        return updatedData as UserProfile;
-      }
-    } catch (updateError) {
-      console.error('❌ Failed to update profile user ID:', updateError);
-    }
-  }
-
-  // If still no profile, create one
-  console.log('📝 Creating new profile...');
-  try {
-    const newProfile: Partial<UserProfile> = {
-      id: userId,
-      email: session.user?.email || '',
-      full_name: session.user?.user_metadata?.full_name || session.user?.user_metadata?.name || session.user?.email?.split('@')[0] || '',
-      role: 'student', // Default role
-      is_approved: false, // Needs admin approval
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    // Try to create, but handle duplicate email by using a different approach
-    const createdProfile = await createUserProfileForce(newProfile as UserProfile);
-    if (createdProfile) {
-      console.log('✅ Profile fetched successfully:', {
-        id: createdProfile.id,
-        email: createdProfile.email,
-        full_name: createdProfile.full_name,
-        branch: createdProfile.branch,
-        semester: createdProfile.semester,
-        department: createdProfile.department,
-        year_of_study: createdProfile.year_of_study,
-        usn: createdProfile.usn,
-        student_id: createdProfile.student_id
-      });
-      return createdProfile;
-    }
-  } catch (createError) {
-    console.error('❌ Failed to create profile:', createError);
-  }
-
-  console.error('❌ All profile operations failed');
-  return null;
 };
 
 // Force create profile (for handling duplicate email issues)

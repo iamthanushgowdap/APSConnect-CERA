@@ -5,6 +5,7 @@ import type { UserRole, Branch, UserProfile, Semester, NotificationPreferences }
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { checkAndGenerateNotifications } from '@/lib/notification-manager';
+import { assignUserToGroups } from '@/lib/groups-utils';
 
 export interface User {
   uid: string;
@@ -80,39 +81,44 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     localStorage.removeItem(CACHE_KEY);
   };
 
-  // Optimized profile fetching with caching
+  // Optimized profile fetching with better caching
   const fetchProfile = async (userId: string): Promise<User | null> => {
     try {
-      // Check cache first
+      // Check cache first with better validation
       const cached = getCachedProfile();
-      if (cached && cached.uid === userId) {
+      if (cached && cached.uid === userId && cached.email) {
+        console.log('✅ Using cached profile for user:', userId);
         setUser(cached);
         return cached;
       }
 
-      // Single optimized database query
+      // Single optimized database query with all necessary fields
+      console.log('🔍 Fetching fresh profile from database for user:', userId);
       const { data: profile, error } = await supabase
         .from('user_profiles')
-        .select('*')
+        .select('id, email, full_name, role, branch, semester, department, year_of_study, usn, student_id, assigned_branches, assigned_semesters, rejection_reason, is_approved, avatar_url')
         .eq('id', userId)
         .single();
 
       if (error) {
         if (error.code === 'PGRST116') {
-          // Profile doesn't exist - create basic user
+          console.log('⚠️ Profile not found, creating basic user for:', userId);
+          // Create basic user if profile doesn't exist
           const basicUser: User = {
             uid: userId,
             email: null,
             displayName: null,
             role: 'student',
+            is_approved: true,
           };
           setUser(basicUser);
           return basicUser;
         }
-        throw error;
+        console.error('❌ Database error fetching profile:', error);
+        return null;
       }
 
-      // Convert to our User format
+      // Convert to our User format with all fields
       const userData: User = {
         uid: profile.id,
         email: profile.email || null,
@@ -125,19 +131,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         assignedSemesters: profile.assigned_semesters,
         rejectionReason: profile.rejection_reason,
         is_approved: profile.is_approved,
+        avatarDataUrl: profile.avatar_url,
       };
 
-      // Cache the profile
+      // Cache the complete profile
       setCachedProfile(userData);
       setUser(userData);
 
-      // Generate notifications for the user
-      setTimeout(() => checkAndGenerateNotifications(userData), 1000);
-
+      console.log('✅ Fresh profile loaded and cached for user:', userId);
       return userData;
 
     } catch (error) {
-      console.error('Error fetching profile:', error);
+      console.error('❌ Error fetching profile:', error);
       return null;
     }
   };
@@ -198,6 +203,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const userData = await fetchProfile(session.user.id);
         if (userData) {
           console.log('✅ Profile loaded for signed-in user');
+
+          // Automatically assign user to appropriate groups
+          console.log('🔗 Assigning user to groups...');
+          await assignUserToGroups(userData);
+
           authInitialized = true;
         }
       } else if (event === 'SIGNED_OUT') {
@@ -266,6 +276,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // Fetch and cache complete profile
       const userData = await fetchProfile(data.user.id);
       if (!userData) throw new Error('Failed to load profile');
+
+      // Automatically assign user to appropriate groups
+      console.log('🔗 Assigning groups to newly signed-in user...');
+      await assignUserToGroups(userData);
 
       // Generate notifications for the newly signed-in user
       setTimeout(() => checkAndGenerateNotifications(userData), 2000);

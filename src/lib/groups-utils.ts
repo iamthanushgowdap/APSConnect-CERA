@@ -191,24 +191,202 @@ export async function canUserPostInGroup(userId: string, groupId: string): Promi
   }
 }
 
-// Initialize groups for a new branch/semester combination (admin function)
-export async function initializeGroupsForBranchSemester(branch: Branch, semester: Semester): Promise<void> {
+// Automatically assign user to appropriate groups based on their role and profile
+export async function assignUserToGroups(user: User): Promise<void> {
+  if (!user || !user.uid) {
+    console.error('Cannot assign groups: invalid user', user);
+    return;
+  }
+
   try {
-    const groups = generateGroupsFor(branch, semester);
+    console.log('🚀 Starting automatic group assignment for user:', user.uid, user.role);
 
-    // Insert groups
-    const { error: groupsError } = await supabase
-      .from('groups')
-      .upsert(groups, { onConflict: 'id' });
+    // Get user's profile to determine branch/semester assignments
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('branch, semester, assigned_branches, assigned_semesters, role')
+      .eq('id', user.uid)
+      .single();
 
-    if (groupsError) {
-      throw groupsError;
+    if (profileError) {
+      console.error('❌ Error fetching user profile for group assignment:', profileError);
+      return;
     }
 
-    // This would need to be called by an admin to populate memberships
-    // The memberships population is handled by the migration script
-    console.log(`Groups initialized for ${branch} ${semester}`);
+    console.log('📋 User profile for assignment:', profile);
+
+    // Clear existing group memberships for this user to avoid duplicates
+    const { error: deleteError } = await supabase
+      .from('group_members')
+      .delete()
+      .eq('user_id', user.uid);
+
+    if (deleteError) {
+      console.error('❌ Error clearing existing group memberships:', deleteError);
+      return;
+    }
+
+    console.log('🧹 Cleared existing group memberships');
+
+    const memberships: any[] = [];
+
+    // ==================== COMMON GROUPS FOR ALL USERS ====================
+    // All users get official announcements (read-only)
+    memberships.push({
+      group_id: 'official_announcements',
+      user_id: user.uid,
+      role: user.role,
+      can_post: false
+    });
+
+    // ==================== ROLE-SPECIFIC ASSIGNMENTS ====================
+    if (user.role === 'admin') {
+      console.log('👑 Assigning admin to all groups');
+
+      // Admins get all groups with posting rights
+      memberships.push(
+        { group_id: 'admin_announcements', user_id: user.uid, role: 'admin', can_post: true },
+        { group_id: 'faculty_lounge', user_id: user.uid, role: 'admin', can_post: true }
+      );
+
+      // Get all existing groups and assign admin to them
+      const { data: allGroups, error: groupsError } = await supabase
+        .from('groups')
+        .select('id, type');
+
+      if (!groupsError && allGroups) {
+        allGroups.forEach(group => {
+          memberships.push({
+            group_id: group.id,
+            user_id: user.uid,
+            role: 'admin',
+            can_post: true
+          });
+        });
+      }
+
+    } else if (user.role === 'faculty') {
+      console.log('👨‍🏫 Assigning faculty to their assigned groups');
+
+      // Faculty get faculty lounge
+      memberships.push({
+        group_id: 'faculty_lounge',
+        user_id: user.uid,
+        role: 'faculty',
+        can_post: true
+      });
+
+      // Faculty get groups based on assigned_branches and assigned_semesters
+      if (profile.assigned_branches && profile.assigned_branches.length > 0) {
+        const { data: facultyGroups, error: facultyGroupsError } = await supabase
+          .from('groups')
+          .select('id, branch, semester, type')
+          .in('branch', profile.assigned_branches);
+
+        if (!facultyGroupsError && facultyGroups) {
+          facultyGroups.forEach(group => {
+            // Only assign to official groups (department and class groups)
+            if (group.type === 'official') {
+              memberships.push({
+                group_id: group.id,
+                user_id: user.uid,
+                role: 'faculty',
+                can_post: true
+              });
+            }
+          });
+        }
+      }
+
+    } else if (user.role === 'student') {
+      console.log('🎓 Assigning student to their branch/semester groups');
+
+      // Students get assigned based on their branch and semester
+      if (profile.branch && profile.semester) {
+        console.log(`📚 Looking for groups: branch=${profile.branch}, semester=${profile.semester}`);
+
+        // Get official groups for student's branch/semester
+        const { data: studentOfficialGroups, error: officialError } = await supabase
+          .from('groups')
+          .select('id, branch, semester, type')
+          .eq('branch', profile.branch)
+          .eq('semester', profile.semester)
+          .eq('type', 'official');
+
+        if (!officialError && studentOfficialGroups) {
+          console.log(`✅ Found ${studentOfficialGroups.length} official groups for ${profile.branch} ${profile.semester}`);
+          studentOfficialGroups.forEach(group => {
+            memberships.push({
+              group_id: group.id,
+              user_id: user.uid,
+              role: 'student',
+              can_post: false
+            });
+          });
+        } else {
+          console.log(`⚠️ No official groups found for ${profile.branch} ${profile.semester}`, officialError);
+        }
+
+        // Get student discussion groups for student's branch/semester
+        const { data: studentDiscussionGroups, error: discussionError } = await supabase
+          .from('groups')
+          .select('id, branch, semester, type')
+          .eq('branch', profile.branch)
+          .eq('semester', profile.semester)
+          .eq('type', 'student');
+
+        if (!discussionError && studentDiscussionGroups) {
+          console.log(`✅ Found ${studentDiscussionGroups.length} discussion groups for ${profile.branch} ${profile.semester}`);
+          studentDiscussionGroups.forEach(group => {
+            memberships.push({
+              group_id: group.id,
+              user_id: user.uid,
+              role: 'student',
+              can_post: true // Students can post in discussion groups
+            });
+          });
+        } else {
+          console.log(`⚠️ No discussion groups found for ${profile.branch} ${profile.semester}`, discussionError);
+        }
+      } else {
+        console.log('⚠️ Student missing branch or semester:', { branch: profile.branch, semester: profile.semester });
+      }
+
+    } else if (user.role === 'alumni') {
+      console.log('🎓 Assigning alumni to alumni groups');
+
+      // Alumni get official announcements and can post
+      memberships.push({
+        group_id: 'official_announcements',
+        user_id: user.uid,
+        role: 'alumni',
+        can_post: true
+      });
+
+      // Alumni might also get access to their old branch groups if needed
+      // For now, just official announcements
+    }
+
+    // ==================== INSERT MEMBERSHIPS ====================
+    if (memberships.length > 0) {
+      console.log(`📝 Inserting ${memberships.length} group memberships for user ${user.uid}`);
+
+      const { error: insertError } = await supabase
+        .from('group_members')
+        .insert(memberships);
+
+      if (insertError) {
+        console.error('❌ Error inserting group memberships:', insertError);
+        console.error('Failed memberships:', memberships);
+      } else {
+        console.log(`✅ Successfully assigned user ${user.uid} to ${memberships.length} groups`);
+        console.log('Assigned groups:', memberships.map(m => m.group_id));
+      }
+    } else {
+      console.log('⚠️ No groups to assign for user', user.uid);
+    }
+
   } catch (error) {
-    console.error('Error initializing groups:', error);
+    console.error('❌ Error in automatic group assignment:', error);
   }
 }

@@ -105,32 +105,86 @@ export async function POST(req: NextRequest) {
       // VERCEL DEPLOYMENT - Use @sparticuz/chromium
       console.log("🚀 Launching serverless Chromium...");
 
-      browser = await puppeteer.launch({
-        args: chromium.args,
-        executablePath: await chromium.executablePath(),
-        headless: true,
-        userDataDir: "/tmp/chromium",
-      });
+      try {
+        console.log("📦 Importing @sparticuz/chromium...");
+        const chromium = (await import('@sparticuz/chromium')).default;
+        console.log("✅ @sparticuz/chromium imported successfully");
 
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle0" });
+        console.log("🔧 Getting Chromium executable path...");
+        const executablePath = await chromium.executablePath();
+        console.log("✅ Executable path:", executablePath);
 
-      // ----------------------------
-      // 📄 Generate the PDF
-      // ----------------------------
-      const pdf = await page.pdf({
-        format: "A4",
-        printBackground: true,
-      });
+        console.log("⚙️ Chromium args:", chromium.args);
 
-      console.log("✅ PDF Generated (Vercel):", pdf.length, "bytes");
+        browser = await puppeteer.launch({
+          args: chromium.args,
+          executablePath: executablePath,
+          headless: true,
+          userDataDir: "/tmp/chromium",
+        });
+        console.log("✅ Browser launched successfully");
 
-      return new NextResponse(Buffer.from(pdf), {
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="${fileName}"`,
-        },
-      });
+        const page = await browser.newPage();
+        console.log("✅ New page created");
+
+        console.log("📄 Setting page content...");
+        await page.setContent(html, { waitUntil: "networkidle0" });
+        console.log("✅ Page content set");
+
+        // ----------------------------
+        // 📄 Generate the PDF
+        // ----------------------------
+        console.log("📄 Generating PDF...");
+        const pdf = await page.pdf({
+          format: "A4",
+          printBackground: true,
+        });
+
+        console.log("✅ PDF Generated (Vercel):", pdf.length, "bytes");
+
+        return new NextResponse(Buffer.from(pdf), {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="${fileName}"`,
+          },
+        });
+      } catch (vercelError: any) {
+        console.error("❌ Vercel-specific error:", vercelError);
+        console.error("Error name:", vercelError.name);
+        console.error("Error message:", vercelError.message);
+        console.error("Error stack:", vercelError.stack);
+
+        // Try fallback to local puppeteer
+        console.log("🔄 Trying fallback to local Puppeteer...");
+        try {
+          const puppeteer = (await import('puppeteer')).default;
+
+          browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+          });
+
+          const page = await browser.newPage();
+          await page.setContent(html, { waitUntil: "networkidle0" });
+
+          const pdf = await page.pdf({
+            format: "A4",
+            printBackground: true,
+          });
+
+          console.log("✅ PDF Generated (Fallback):", pdf.length, "bytes");
+
+          return new NextResponse(Buffer.from(pdf), {
+            headers: {
+              "Content-Type": "application/pdf",
+              "Content-Disposition": `attachment; filename="${fileName}"`,
+            },
+          });
+        } catch (fallbackError: any) {
+          console.error("❌ Fallback also failed:", fallbackError);
+          throw vercelError; // Throw original error
+        }
+      }
     }
 
   } catch (err: any) {

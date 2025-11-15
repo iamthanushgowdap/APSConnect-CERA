@@ -138,8 +138,16 @@ export default function ProfileSettingsPage() {
 
 
   useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+
     const load = async () => {
       try {
+        // Add timeout to prevent infinite loading (30 seconds max)
+        timeoutId = setTimeout(() => {
+          console.warn("Profile loading timeout - forcing page to load");
+          setPageLoading(false);
+        }, 30000);
+
         if (authLoading) return; // wait
 
         // Check Supabase session first
@@ -153,10 +161,10 @@ export default function ProfileSettingsPage() {
           return;
         }
 
-        // If session exists but authUser not yet ready → WAIT
+        // If session exists but authUser not yet ready → WAIT (but with timeout)
         if (!authUser && sessionData.session) {
           console.log("Waiting for auth context to hydrate...");
-          // Don't set loading to false here, wait for authUser to be available
+          // Don't set loading to false here, wait for authUser to be available or timeout
           return; 
         }
 
@@ -193,12 +201,17 @@ export default function ProfileSettingsPage() {
         console.error("Error in profile loading:", error);
         toast({ title: "Error", description: "Failed to load profile", variant: "destructive" });
       } finally {
+        if (timeoutId) clearTimeout(timeoutId);
         setPageLoading(false);
       }
     };
 
     load();
-  }, [authUser, authLoading, router, profileForm, toast]);
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [authUser, authLoading]);
 
 
   const handleAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
