@@ -4,6 +4,30 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs"; // IMPORTANT: Disable Edge Runtime
 
 export async function POST(req: NextRequest) {
+  try {
+    console.log("🔥 FUNCTION ENTRY: PDF generation API called at", new Date().toISOString());
+    console.log("🔥 REQUEST METHOD:", req.method);
+    console.log("🔥 REQUEST URL:", req.url);
+    console.log("🔥 NODE_ENV:", process.env.NODE_ENV);
+    console.log("🔥 VERCEL:", process.env.VERCEL);
+    console.log("🔥 VERCEL_ENV:", process.env.VERCEL_ENV);
+    console.log("🔥 VERCEL_URL:", process.env.VERCEL_URL);
+
+    return await generatePDF(req);
+  } catch (error: any) {
+    console.error("💥 TOP LEVEL ERROR:", error);
+    console.error("Error name:", error.name);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+
+    return NextResponse.json(
+      { error: "PDF generation failed at module level", details: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+async function generatePDF(req: NextRequest) {
   let browser = null;
 
   try {
