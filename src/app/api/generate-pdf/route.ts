@@ -118,6 +118,10 @@ export async function POST(req: NextRequest) {
         const chromium = (await import('@sparticuz/chromium')).default;
         console.log("✅ @sparticuz/chromium imported successfully");
 
+        console.log("📦 Importing puppeteer-core...");
+        const puppeteer = (await import('puppeteer-core')).default;
+        console.log("✅ puppeteer-core imported successfully");
+
         console.log("🔧 Getting Chromium executable path...");
         const executablePath = await chromium.executablePath();
         console.log("✅ Executable path:", executablePath);
